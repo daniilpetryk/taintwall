@@ -5,7 +5,7 @@
 # taintwall Python runtime: locked dependencies only, non-root.
 # Build from the repo root: docker build -f docker/app.Dockerfile .
 
-FROM python:3.14-slim-trixie AS build
+FROM python:3.15-slim-trixie AS build
 COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -21,7 +21,7 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
-FROM python:3.14-slim-trixie
+FROM python:3.15-slim-trixie
 LABEL org.opencontainers.image.title="taintwall" \
       org.opencontainers.image.source="https://github.com/daniilpetryk/taintwall" \
       org.opencontainers.image.licenses="Apache-2.0"
