@@ -55,6 +55,6 @@ repos:
         pass_filenames: false
       - id: hadolint
         name: hadolint (needs Docker running)
-        entry: bash -c 'for f in "$@"; do docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" hadolint/hadolint:v2.14.0 < "$f" || exit 1; done' --
+        entry: bash -c 'for f in "$@"; do docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" hadolint/hadolint:v2.14.0@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e < "$f" || exit 1; done' --
         language: system
         files: Dockerfile$
