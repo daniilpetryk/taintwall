@@ -2,13 +2,13 @@
 
 **Prompt-injection defense for AI agents that hold a crypto wallet: by architecture, not by prompting.**
 
-![status](https://img.shields.io/badge/status-design%20phase-orange) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/daniilpetryk/taintwall/badge)](https://scorecard.dev/viewer/?uri=github.com/daniilpetryk/taintwall)
+![status](https://img.shields.io/badge/status-design%20phase-orange) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 An agent with a wallet reads text that strangers write: token names, NFT metadata, DAO proposals, invoices, web pages, group-chat messages. If any of that text can steer what the agent does next, one crafted token name is enough to drain the wallet, and the loss is irreversible.
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** design phase, no code yet. The design is complete: [`docs/design.md`](docs/design.md) (text) and [`docs/architecture.html`](docs/architecture.html) (diagrams, open in a browser).
+> **Status:** design phase, no code yet. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
 
 ## The attack it stops
 
