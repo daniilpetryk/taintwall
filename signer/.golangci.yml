@@ -1,25 +1,216 @@
 version: "2"
 
+# Strict, curated set for a security-critical service: the signer holds the
+# only private key. Every linter that is off by default and enabled here
+# earns its place; disabled ones are listed at the bottom with a reason.
+
 run:
-  timeout: 3m
+  timeout: 5m
 
 linters:
-  default: standard
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
   enable:
+    # bugs and correctness
+    - asasalint
+    - bidichk
     - bodyclose
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errchkjson
     - errorlint
-    - gosec
-    - misspell
+    - exhaustive
+    - fatcontext
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - makezero
+    - musttag
+    - nilerr
+    - nilnesserr
+    - nilnil
     - noctx
+    - nosprintfhostport
+    - reassign
+    - recvcheck
+    - rowserrcheck
+    - sqlclosecheck
+    - containedctx
+    - gochecknoinits
+    - iotamixing
+    - embeddedstructfieldcheck
+    # security
+    - gosec
+    - depguard
+    - forbidigo
+    - gomoddirectives
+    # errors
+    - err113
+    - errname
+    - wrapcheck
+    # logging (the signer will log with log/slog)
+    - sloglint
+    - loggercheck
+    # complexity and duplication
+    - cyclop
+    - funlen
+    - gocognit
+    - nestif
+    - maintidx
+    - dupl
+    - goconst
+    - dogsled
+    # style and modern Go
+    - asciicheck
+    - canonicalheader
+    - dupword
+    - exptostd
+    - gocritic
+    - godoclint
+    - godot
+    - intrange
+    - misspell
+    - mirror
+    - modernize
+    - nakedret
+    - nolintlint
+    - nonamedreturns
+    - perfsprint
+    - prealloc
+    - predeclared
     - revive
     - unconvert
     - unparam
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+    # tests
+    - paralleltest
+    - testifylint
+    - thelper
+    - tparallel
+
+  settings:
+    cyclop:
+      max-complexity: 12
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 15
+    nestif:
+      min-complexity: 4
+    nakedret:
+      max-func-lines: 0
+    exhaustive:
+      default-signifies-exhaustive: true
+    gosec:
+      excludes: []
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: math/rand
+              desc: "the signer must use crypto/rand"
+            - pkg: math/rand/v2
+              desc: "the signer must use crypto/rand"
+            - pkg: github.com/pkg/errors
+              desc: "use the standard errors package"
+            - pkg: io/ioutil
+              desc: "deprecated, use io and os"
+    forbidigo:
+      forbid:
+        - pattern: ^print(ln)?$
+          msg: "use log/slog or write to an explicit io.Writer"
+        - pattern: ^fmt\.Print.*$
+          msg: "use log/slog or fmt.Fprint* to an explicit io.Writer"
+    gocritic:
+      enabled-tags: [diagnostic, performance, style]
+      disabled-checks:
+        - whyNoLint # nolintlint covers it
+    godot:
+      scope: declarations
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-return
+        - name: error-naming
+        - name: error-strings
+        - name: receiver-naming
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: context-as-argument
+        - name: defer
+        - name: early-return
+        - name: indent-error-flow
+        - name: superfluous-else
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Join(
+        - .Wrap(
+
+    sloglint:
+      kv-only: false
+      attr-only: true # typed slog.Attr only: no mismatched key/value pairs
+      no-global: all # pass a *slog.Logger explicitly
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+    dupl:
+      threshold: 120
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [funlen, err113, wrapcheck, dupword, dupl, goconst, maintidx]
+
+  # Every linter golangci-lint ships that is not enabled above, with the reason:
+  # - gochecknoglobals: buildinfo.Version is a global set by -ldflags
+  # - exhaustruct: forces every struct field at every literal; zero values are idiomatic
+  # - varnamelen, wsl, nlreturn, grouper, decorder, funcorder, tagalign,
+  #   inamedparam, noinlineerr: layout and naming style, not correctness
+  # - lll: golines formats to 120 columns instead
+  # - gocyclo: cyclop and gocognit cover complexity
+  # - mnd: noisy for byte sizes and limits; limits live in named config instead
+  # - ireturn, iface, interfacebloat: no interfaces yet; revisit in stage 5
+  # - gomodguard: depguard covers module bans
+  # - importas: no aliased imports to standardize yet
+  # - godox: TODOs are allowed while the code is young
+  # - goheader: REUSE lint checks license headers for the whole repo
+  # - testpackage: white-box tests are fine for internal packages
+  # - testableexamples, tagliatelle, gosmopolitan: no examples, tags or i18n yet
+  # - promlinter, spancheck, zerologlint, ginkgolinter, protogetter,
+  #   arangolint, clickhouselint, unqueryvet: libraries we do not use
 
 formatters:
   enable:
     - gofumpt
     - goimports
+    - golines
   settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
     goimports:
       local-prefixes:
         - github.com/daniilpetryk/taintwall
+    golines:
+      max-len: 120
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

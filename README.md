@@ -8,7 +8,7 @@ An agent with a wallet reads text that strangers write: token names, NFT metadat
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** design phase, no code yet. The design is complete: [`docs/design.md`](docs/design.md) (text) and [`docs/architecture.html`](docs/architecture.html) (diagrams, open in a browser).
+> **Status:** design phase, no code yet. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
 
 ## The attack it stops
 
@@ -118,20 +118,53 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 
 ## Development
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) (installs Python 3.14 and dev tools), Go 1.27+, [golangci-lint](https://golangci-lint.run/) v2. Foundry/anvil is needed from stage 4.
+Two ways to work: with local tools, or with only Docker.
 
 ```bash
-make setup   # Python env, dev dependencies, git hooks
-make check   # everything CI runs, both languages
+# local: uv 0.13.x (installs Python 3.14 and dev tools), Go 1.27+, golangci-lint v2
+make setup          # Python env, dev dependencies, git hooks
+make check          # everything CI runs on code, both languages
+
+# Docker only: same toolchain as CI, nothing installed on the host
+make docker-check
 ```
+
+uv is pinned to one minor version everywhere: `[tool.uv] required-version` in `pyproject.toml` (uv refuses to run outside it), `setup-uv` in CI and the uv image in `docker/`. Bump all three together; new releases are taken only after a week, matching the Dependabot cooldown.
 
 | Command | Python | Go (`signer/`) |
 |---|---|---|
-| `make fmt` | `ruff format`, `ruff check --fix` | `gofumpt`, `goimports` |
-| `make lint` | `ruff format --check`, `ruff check`, `mypy --strict` | `golangci-lint run` |
-| `make test` | `pytest` | `go test -race` |
+| `make fmt` | `ruff format`, `ruff check --fix` | `gofumpt`, `goimports`, `golines` |
+| `make lint` | `ruff` (all rules), `mypy` + `pyrefly`, `lint-imports`, `deptry` | `go mod tidy -diff`, `golangci-lint run` (78 linters) |
+| `make test` | `pytest` (random order) | `go test -race` |
+| `make audit` | `pip-audit` on `uv.lock` | `govulncheck` |
 
-Pre-commit hooks run the same formatters and linters on every commit. CI runs Python on 3.13 and 3.14 and Go with golangci-lint.
+Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make lint-docker` (hadolint and `docker build --check`), `make docker-build`, `make scan` (image CVE gate). Run `make` to list everything.
+
+**Lint rules.** Python enables every stable ruff rule and lists each exception with a reason in `pyproject.toml`; banned APIs include `pickle`, `marshal`, `shelve` and shell execution. Two type checkers with different engines must both pass: strict mypy with extra error codes, and Pyrefly. Go enables 78 golangci-lint linters in `signer/.golangci.yml`, including `gosec`, `depguard` (no `math/rand` in the signer), `forbidigo` and `modernize`; every linter left off is listed there with a reason.
+
+**Architecture contracts.** `lint-imports` (Import Linter) enforces security invariants of the design as import rules: the policy engine never imports the LLM layer, the LLM layer cannot reach tools, the chain or the store, and the core depends on no integration layer.
+
+**Licensing.** The repo is [REUSE](https://reuse.software) compliant: `REUSE.toml` plus SPDX headers give every file a machine-readable license, checked on every commit.
+
+**Pre-commit hooks** run the formatters and linters plus `gitleaks` (secrets), `actionlint` and `zizmor` (GitHub Actions), `typos` (spelling), `reuse` (licensing), `uv-lock` (lock file in sync) and `hadolint` (Dockerfiles, needs Docker running).
+
+**CI** runs Python on 3.13 and 3.14, Go lint and race tests, the repo-wide hooks, dependency audits, hadolint, image builds and the image CVE gate. [CodeQL](https://codeql.github.com) scans Python, Go and the workflows with the extended security queries; [OpenSSF Scorecard](https://scorecard.dev) rates the repo's supply-chain practices weekly. Actions are pinned to commit SHAs; Dependabot updates actions, Python, Go and Docker base images weekly into `dev`, taking releases only after a week.
+
+### Docker
+
+| Image | Base | Runs as |
+|---|---|---|
+| `docker/signer.Dockerfile` | distroless `static-debian13` | `nonroot`, no shell, no network in compose |
+| `docker/app.Dockerfile` | `python:3.14-slim-trixie` | `taintwall` (uid 10001), read-only filesystem, no pip |
+| `docker/dev.Dockerfile` | `golang:1.27-trixie` + uv + golangci-lint | your host uid via `make docker-check` |
+
+- **Pinned by digest.** Every base image is `tag@sha256:…`, so builds are reproducible; Dependabot bumps tag and digest together.
+- **Cross-compiled signer.** The Go build stage runs on the build machine's platform and targets `TARGETOS/TARGETARCH`, so `docker buildx build --platform linux/amd64,linux/arm64` needs no emulation. CI builds both.
+- **Security updates at build.** The app image applies Debian security updates released after its base and removes the system pip.
+- **Vulnerability gate.** `make scan` (and CI) runs Grype on the signer and app images and fails on High/Critical findings that already have a fix. Exceptions live in `.grype.yaml`, each scoped to the exact package version and dated.
+- **Not yet:** SBOM and provenance attestations attach to published images, so they arrive with image publishing in stage 6.
+
+`compose.yaml` also defines a local `anvil` chain behind the `chain` profile for stage 4: `docker compose --profile chain up anvil` (bound to localhost only).
 
 ### Branches
 
@@ -162,13 +195,16 @@ src/taintwall/
 signer/      Go signing service
 bench/       AgentDojo, CrAIBench and own anvil task suites (planned)
 viewer/      provenance graph UI (planned)
+docker/      Dockerfiles for signer, app and dev toolbox
 docs/        design and architecture
 tests/       Python tests
 ```
 
-## Safety
+## Safety and security
 
 Local anvil forks and testnets only. No real keys, no real funds. Test keys are generated locally and kept in `.env`, which is git-ignored.
+
+Found a way around the defense? Please report it privately; see [SECURITY.md](SECURITY.md).
 
 ## Prior art
 

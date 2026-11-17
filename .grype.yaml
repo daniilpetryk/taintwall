@@ -1,0 +1,15 @@
+# Image vulnerability gate (make scan, CI docker job).
+# Fails on High or Critical findings that already have a fix: those mean the
+# image needs a rebuild or a base bump. Unfixed Debian CVEs are reported, not fatal.
+fail-on-severity: high
+only-fixed: true
+
+# Every ignore is scoped to the exact installed version, so it stops matching
+# as soon as the package is upgraded. Review each entry when bumping images.
+ignore:
+  # Fixed in CPython 3.14.11, but no python:3.14.11 official image exists yet
+  # (checked 2026-11-17). Dependabot bumps the base when it lands.
+  - vulnerability: CVE-2026-119170
+    package:
+      name: python
+      version: 3.14.10

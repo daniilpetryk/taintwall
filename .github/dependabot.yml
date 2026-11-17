@@ -1,0 +1,64 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      actions: { patterns: ["*"] }
+    cooldown: { default-days: 7 }
+
+  - package-ecosystem: uv
+    directory: /
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      python: { patterns: ["*"] }
+    cooldown: { default-days: 7 }
+
+  - package-ecosystem: gomod
+    directory: /signer
+    schedule: { interval: weekly }
+    target-branch: dev
+    cooldown: { default-days: 7 }
+
+  # Dev tools kept out of the signer module (govulncheck).
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      go-tools: { patterns: ["*"] }
+    cooldown: { default-days: 7 }
+
+  # rev fields in .pre-commit-config.yaml (local hooks are skipped).
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      hooks: { patterns: ["*"] }
+    cooldown: { default-days: 7 }
+
+  # Bumps tag and digest together in the digest-pinned FROM lines.
+  # Python 3.14 and Go 1.27 are deliberate choices: their images get patch and
+  # digest updates only; moving to a new minor version is a decision, not a bump.
+  - package-ecosystem: docker
+    directory: /docker
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      images: { patterns: ["*"] }
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: golang
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    cooldown: { default-days: 7 }
+
+  # Images referenced from compose.yaml (anvil).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    target-branch: dev
+    cooldown: { default-days: 7 }

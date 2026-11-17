@@ -1,0 +1,49 @@
+services:
+  # make check in a container with the same toolchain as CI.
+  # Run through `make docker-check`, which sets --user to the host uid:gid.
+  dev:
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - venv:/opt/venv            # keep the Linux venv apart from the host .venv
+      - cache:/cache              # uv, Go modules, Go build, golangci-lint
+
+  # Python runtime image (benchmarks from stage 0 on)
+  app:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  # Isolated signer: no network until stage 5 defines its unix socket
+  signer:
+    build:
+      context: .
+      dockerfile: docker/signer.Dockerfile
+    init: true
+    network_mode: none
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  # Local chain for stage 4+: `docker compose --profile chain up anvil`
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:v1.9.0@sha256:3a392c18f9b16e665e932de159fb6fa9ed972c4b4352f2f76a1a8c7ca9b57d39
+    profiles: [chain]
+    entrypoint: ["anvil", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:8545:8545"   # localhost only
+
+volumes:
+  venv:
+  cache:

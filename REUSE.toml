@@ -1,0 +1,9 @@
+version = 1
+
+# Licensing for every file in the repo, in one place (https://reuse.software).
+# Source files also carry SPDX headers; "aggregate" combines both.
+[[annotations]]
+path = ["**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Daniil Petryk"
+SPDX-License-Identifier = "Apache-2.0"
