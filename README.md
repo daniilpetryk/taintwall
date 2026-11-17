@@ -200,9 +200,11 @@ docs/        design and architecture
 tests/       Python tests
 ```
 
-## Safety
+## Safety and security
 
 Local anvil forks and testnets only. No real keys, no real funds. Test keys are generated locally and kept in `.env`, which is git-ignored.
+
+Found a way around the defense? Please report it privately; see [SECURITY.md](SECURITY.md).
 
 ## Prior art
 
