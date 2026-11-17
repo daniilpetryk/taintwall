@@ -133,6 +133,20 @@ make check   # everything CI runs, both languages
 
 Pre-commit hooks run the same formatters and linters on every commit. CI runs Python on 3.13 and 3.14 and Go with golangci-lint.
 
+### Branches
+
+- **`main`**: stable. Changes arrive only by merging `dev`.
+- **`dev`**: integration branch. All work lands here first.
+- **Topic branches**: one per change, cut from `dev`, merged back into `dev` by pull request.
+
+```bash
+git switch dev && git pull
+git switch -c feat/labeled-values   # or fix/..., docs/..., chore/...
+# commit, push, open a PR into dev
+```
+
+When `dev` is in a good state, open a PR from `dev` into `main`. CI runs on pushes to both branches and on every PR into them.
+
 ## Layout
 
 Folders marked *(planned)* do not exist yet.
