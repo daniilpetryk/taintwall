@@ -42,26 +42,55 @@ target-version = "py313"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = [
-    "E", "W",   # pycodestyle
-    "F",        # pyflakes
-    "I",        # isort
-    "B",        # bugbear
-    "UP",       # pyupgrade
-    "SIM",      # simplify
-    "N",        # naming
-    "S",        # bandit (security)
-    "PT",       # pytest style
-    "RET",      # return statements
-    "PTH",      # pathlib
-    "RUF",      # ruff-specific
+# Opt-out style: every stable rule is on, exceptions are listed with a reason.
+# The ruff version is pinned in uv.lock, so new rules arrive only on upgrade.
+select = ["ALL"]
+ignore = [
+    "COM812",  # trailing commas: handled by the formatter
+    "D105",    # docstrings on magic methods: noise
+    "D107",    # docstring on __init__: documented on the class
+    "TD002",   # TODO author: git blame has it
+    "FIX002",  # TODOs are allowed; TD003 still requires an issue link
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is how pytest works
+"tests/**" = [
+    "S101",     # assert is how pytest works
+    "D",        # test names are the documentation
+    "PLR2004",  # magic values are normal in expected results
+    "INP001",   # tests/ is not a package
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["taintwall"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Untrusted data is the whole threat model: no unsafe deserialization or shells.
+"pickle".msg = "Never deserialize with pickle; use json or pydantic."
+"marshal".msg = "Never deserialize with marshal; use json or pydantic."
+"shelve".msg = "shelve uses pickle; use the label store (SQLite)."
+"os.system".msg = "No shell execution; use subprocess with an argument list."
+"os.popen".msg = "No shell execution; use subprocess with an argument list."
+"random".msg = "Use secrets for anything security-relevant; seed-based random only in bench code."
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -70,16 +99,42 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.13"
+files = ["src", "tests"]
 strict = true
 warn_unreachable = true
-files = ["src", "tests"]
+strict_bytes = true
+local_partial_types = true
+enable_error_code = [
+    "deprecated",
+    "explicit-override",
+    "ignore-without-code",
+    "mutable-override",
+    "possibly-undefined",
+    "redundant-expr",
+    "redundant-self",
+    "truthy-bool",
+    "truthy-iterable",
+    "unimported-reveal",
+    "unused-awaitable",
+]
 
 # --- pytest -----------------------------------------------------------------
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+xfail_strict = true
+filterwarnings = ["error"]
 
 [tool.coverage.run]
 source = ["taintwall"]
 branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]
