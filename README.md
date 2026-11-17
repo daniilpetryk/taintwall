@@ -118,20 +118,41 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 
 ## Development
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) (installs Python 3.14 and dev tools), Go 1.27+, [golangci-lint](https://golangci-lint.run/) v2. Foundry/anvil is needed from stage 4.
+Two ways to work: with local tools, or with only Docker.
 
 ```bash
-make setup   # Python env, dev dependencies, git hooks
-make check   # everything CI runs, both languages
+# local: uv (installs Python 3.14 and dev tools), Go 1.27+, golangci-lint v2
+make setup          # Python env, dev dependencies, git hooks
+make check          # everything CI runs on code, both languages
+
+# Docker only: same toolchain as CI, nothing installed on the host
+make docker-check
 ```
 
 | Command | Python | Go (`signer/`) |
 |---|---|---|
-| `make fmt` | `ruff format`, `ruff check --fix` | `gofumpt`, `goimports` |
-| `make lint` | `ruff format --check`, `ruff check`, `mypy --strict` | `golangci-lint run` |
+| `make fmt` | `ruff format`, `ruff check --fix` | `gofumpt`, `goimports`, `golines` |
+| `make lint` | `ruff format --check`, `ruff check` (all rules), strict `mypy` | `golangci-lint run` (≈60 linters) |
 | `make test` | `pytest` | `go test -race` |
+| `make audit` | `pip-audit` on `uv.lock` | `govulncheck` |
 
-Pre-commit hooks run the same formatters and linters on every commit. CI runs Python on 3.13 and 3.14 and Go with golangci-lint.
+Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make lint-docker` (hadolint), `make docker-build`. Run `make` to list everything.
+
+**Lint rules.** Python enables every stable ruff rule and lists each exception with a reason in `pyproject.toml`; banned APIs include `pickle`, `marshal`, `shelve` and shell execution. mypy runs strict plus extra error codes. Go uses a curated golangci-lint set in `signer/.golangci.yml`, including `gosec`, `depguard` (no `math/rand` in the signer) and `forbidigo`. Every source file carries an SPDX license header (checked by ruff `CPY001`).
+
+**Pre-commit hooks** run the formatters and linters plus `gitleaks` (secrets), `actionlint` and `zizmor` (GitHub Actions), and `hadolint` (Dockerfiles, needs Docker running).
+
+**CI** runs Python on 3.13 and 3.14, Go lint and race tests, dependency audits, hadolint and image builds. Actions are pinned to commit SHAs; Dependabot updates actions, Python, Go and Docker base images weekly into `dev`.
+
+### Docker
+
+| Image | Base | Runs as |
+|---|---|---|
+| `docker/signer.Dockerfile` | distroless `static-debian13` | `nonroot`, no shell, no network in compose |
+| `docker/app.Dockerfile` | `python:3.14-slim-trixie` | `taintwall` (uid 10001), read-only filesystem |
+| `docker/dev.Dockerfile` | `golang:1.27-trixie` + uv + golangci-lint | root, on a bind-mounted checkout |
+
+`compose.yaml` also defines a local `anvil` chain behind the `chain` profile for stage 4: `docker compose --profile chain up anvil` (bound to localhost only).
 
 ### Branches
 
@@ -162,6 +183,7 @@ src/taintwall/
 signer/      Go signing service
 bench/       AgentDojo, CrAIBench and own anvil task suites (planned)
 viewer/      provenance graph UI (planned)
+docker/      Dockerfiles for signer, app and dev toolbox
 docs/        design and architecture
 tests/       Python tests
 ```
