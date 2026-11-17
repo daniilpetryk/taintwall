@@ -68,8 +68,7 @@ The owner asks: *"pay the invoice in invoice.pdf"*. The planner writes:
 
 ```python
 invoice = read_file("invoice.pdf")
-details = query_qllm("Extract payment recipient and amount",
-                     data=invoice, schema=PaymentDetails)
+details = query_qllm("Extract payment recipient and amount", data=invoice, schema=PaymentDetails)
 tx = build_transfer(token="USDC", to=details.recipient, amount=details.amount)
 send_transaction(tx)
 ```
@@ -117,7 +116,26 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 - [ ] **6** Provenance viewer, results, write-up
 - [ ] **7+** ERC-4337 on-chain limits, red-teaming
 
-## Planned layout
+## Development
+
+Prerequisites: [uv](https://docs.astral.sh/uv/) (installs Python 3.14 and dev tools), Go 1.27+, [golangci-lint](https://golangci-lint.run/) v2. Foundry/anvil is needed from stage 4.
+
+```bash
+make setup   # Python env, dev dependencies, git hooks
+make check   # everything CI runs, both languages
+```
+
+| Command | Python | Go (`signer/`) |
+|---|---|---|
+| `make fmt` | `ruff format`, `ruff check --fix` | `gofumpt`, `goimports` |
+| `make lint` | `ruff format --check`, `ruff check`, `mypy --strict` | `golangci-lint run` |
+| `make test` | `pytest` | `go test -race` |
+
+Pre-commit hooks run the same formatters and linters on every commit. CI runs Python on 3.13 and 3.14 and Go with golangci-lint.
+
+## Layout
+
+Folders marked *(planned)* do not exist yet.
 
 ```
 src/taintwall/
@@ -128,9 +146,10 @@ src/taintwall/
   tools/     tool registry, MCP adapter
   web3/      chain tools, anvil simulation, effect accounting
 signer/      Go signing service
-bench/       AgentDojo, CrAIBench and own anvil task suites
-viewer/      provenance graph UI
+bench/       AgentDojo, CrAIBench and own anvil task suites (planned)
+viewer/      provenance graph UI (planned)
 docs/        design and architecture
+tests/       Python tests
 ```
 
 ## Safety
