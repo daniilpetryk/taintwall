@@ -1,8 +1,11 @@
 SIGNER    := signer
-HADOLINT  := hadolint/hadolint:v2.14.0@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e
-GRYPE     := anchore/grype:v0.122.0@sha256:013e16ae96bd64108973e3e9fecec63f7ff276358d34c46c25d33e2aac96539f
-GOVULN    := golang.org/x/vuln/cmd/govulncheck@v1.9.0
-PIP_AUDIT := pip-audit==2.10.1
+# Tool versions live where Dependabot can update them:
+#   hadolint, grype -> docker/tools.Dockerfile   (docker ecosystem)
+#   govulncheck     -> tools/go.mod tool directive (gomod ecosystem)
+#   pip-audit       -> dev dependency in pyproject (uv ecosystem)
+tool_image = $(shell sed -n 's/^FROM \(.*\) AS $(1)$$/\1/p' docker/tools.Dockerfile)
+HADOLINT  := $(call tool_image,hadolint)
+GRYPE     := $(call tool_image,grype)
 
 .DEFAULT_GOAL := help
 .PHONY: help setup fmt lint test check cov audit hooks \
@@ -35,8 +38,8 @@ cov: ## Python tests with coverage report
 
 audit: ## Known-vulnerability scan of locked Python and Go dependencies
 	uv export --frozen --all-groups --no-emit-project --format requirements-txt \
-		| uvx $(PIP_AUDIT) --strict --disable-pip --require-hashes -r /dev/stdin
-	cd $(SIGNER) && go run $(GOVULN) ./...
+		| uv run pip-audit --strict --disable-pip --require-hashes -r /dev/stdin
+	go -C tools tool govulncheck -C ../$(SIGNER) ./...
 
 hooks: ## Run every pre-commit hook on all files
 	uv run pre-commit run --all-files
