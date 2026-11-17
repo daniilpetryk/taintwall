@@ -33,6 +33,9 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy
+      - run: uv run pyrefly check
+      - run: uv run lint-imports
+      - run: uv run deptry src
       - run: uv run pytest --cov --cov-report=term
 
   go:
@@ -45,12 +48,34 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: signer/go.mod
+      - run: go mod tidy -diff
+        working-directory: signer
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.15.0
           working-directory: signer
       - run: go test -race ./...
         working-directory: signer
+
+  # Repo-wide hooks: secrets, Actions security, spelling, licensing, lock sync.
+  # Language linters and hadolint are skipped here: their own jobs run them.
+  hooks:
+    name: hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7" # keep in sync with [tool.uv] required-version
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: signer/go.mod
+      - run: uv sync --locked
+      - run: uv run pre-commit run --all-files --show-diff-on-failure
+        env:
+          SKIP: ruff-format,ruff-check,mypy,golangci-lint,hadolint
 
   audit:
     name: audit

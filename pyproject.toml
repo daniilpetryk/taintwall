@@ -23,10 +23,14 @@ Repository = "https://github.com/daniilpetryk/taintwall"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.13",
+    "deptry>=0.25",
+    "import-linter>=2.16",
+    "mypy>=2.4",
     "pre-commit>=4.0",
+    "pyrefly>=1.4",
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    "pytest-randomly>=5.1",
     "ruff>=0.8",
 ]
 
@@ -124,6 +128,60 @@ enable_error_code = [
     "unimported-reveal",
     "unused-awaitable",
 ]
+
+# --- pyrefly: second type checker -------------------------------------------
+# Different inference engine than mypy; both must pass. Cheap to keep clean
+# while the codebase is small, expensive to adopt later.
+
+[tool.pyrefly]
+project-includes = ["src", "tests"]
+python-version = "3.13"
+
+# --- import-linter: architecture contracts ----------------------------------
+# These encode security invariants of the design, not just tidiness.
+
+[tool.importlinter]
+root_package = "taintwall"
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "Policy decisions never consult an LLM"
+type = "forbidden"
+source_modules = ["taintwall.policy"]
+forbidden_modules = ["taintwall.llm"]
+
+[[tool.importlinter.contracts]]
+name = "The LLM layer cannot call tools or touch the chain"
+type = "forbidden"
+source_modules = ["taintwall.llm"]
+forbidden_modules = ["taintwall.tools", "taintwall.web3", "taintwall.store"]
+
+[[tool.importlinter.contracts]]
+name = "Core (labels, interpreter) depends on no integration layer"
+type = "forbidden"
+source_modules = ["taintwall.core"]
+forbidden_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
+
+[[tool.importlinter.contracts]]
+name = "Subpackages form no import cycles"
+type = "acyclic_siblings"
+ancestors = ["taintwall"]
+
+# --- typos: spelling ---------------------------------------------------------
+
+[tool.typos.default]
+# Linter rule codes (CPY001, S101, DL3008) are identifiers, not words.
+extend-ignore-re = ["\\b[A-Z]{1,4}[0-9]{3,4}\\b"]
+
+[tool.typos.default.extend-words]
+# golangci-lint linter names
+decorder = "decorder"
+importas = "importas"
+
+# --- deptry: declared vs used dependencies ----------------------------------
+
+[tool.deptry]
+known_first_party = ["taintwall"]
 
 # --- pytest -----------------------------------------------------------------
 

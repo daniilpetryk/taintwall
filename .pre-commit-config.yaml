@@ -29,6 +29,27 @@ repos:
     hooks:
       - id: zizmor
 
+  # spelling in code, docs and config; report only: auto-fixing identifiers
+  # once turned the linter names decorder/importas into decoder/imports
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.52.0
+    hooks:
+      - id: typos
+        args: []
+
+  # licensing: every file covered (REUSE.toml + SPDX headers)
+  - repo: https://github.com/fsfe/reuse-tool
+    rev: v6.3.0
+    hooks:
+      - id: reuse
+        additional_dependencies: [charset-normalizer]
+
+  # uv.lock stays in sync with pyproject.toml
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.7
+    hooks:
+      - id: uv-lock
+
   - repo: local
     hooks:
       - id: ruff-format

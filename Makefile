@@ -43,15 +43,19 @@ hooks: ## Run every pre-commit hook on all files
 
 # --- per language ---------------------------------------------------------------
 
-py-lint: ## Python: format check, ruff (ALL rules), strict mypy
+py-lint: ## Python: format, ruff (ALL), mypy + pyrefly, import contracts, deptry
 	uv run ruff format --check .
 	uv run ruff check .
 	uv run mypy
+	uv run pyrefly check
+	uv run lint-imports
+	uv run deptry src
 
 py-test: ## Python: pytest
 	uv run pytest
 
-go-lint: ## Go: golangci-lint (incl. gofumpt, goimports, golines)
+go-lint: ## Go: go.mod tidy check, golangci-lint (78 linters + formatters)
+	cd $(SIGNER) && go mod tidy -diff
 	cd $(SIGNER) && golangci-lint run ./...
 
 go-test: ## Go: tests with race detector
