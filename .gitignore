@@ -1,0 +1,37 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# go
+signer/bin/
+
+# foundry
+out/
+cache/
+broadcast/
+
+# benchmark artifacts
+bench/**/runs/
+.llm_cache/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
