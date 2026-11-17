@@ -2,7 +2,7 @@
 
 **Prompt-injection defense for AI agents that hold a crypto wallet: by architecture, not by prompting.**
 
-![status](https://img.shields.io/badge/status-design%20phase-orange) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
+![status](https://img.shields.io/badge/status-design%20phase-orange) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/daniilpetryk/taintwall/badge)](https://scorecard.dev/viewer/?uri=github.com/daniilpetryk/taintwall)
 
 An agent with a wallet reads text that strangers write: token names, NFT metadata, DAO proposals, invoices, web pages, group-chat messages. If any of that text can steer what the agent does next, one crafted token name is enough to drain the wallet, and the loss is irreversible.
 
@@ -134,17 +134,21 @@ uv is pinned to one minor version everywhere: `[tool.uv] required-version` in `p
 | Command | Python | Go (`signer/`) |
 |---|---|---|
 | `make fmt` | `ruff format`, `ruff check --fix` | `gofumpt`, `goimports`, `golines` |
-| `make lint` | `ruff format --check`, `ruff check` (all rules), strict `mypy` | `golangci-lint run` (≈60 linters) |
-| `make test` | `pytest` | `go test -race` |
+| `make lint` | `ruff` (all rules), `mypy` + `pyrefly`, `lint-imports`, `deptry` | `go mod tidy -diff`, `golangci-lint run` (78 linters) |
+| `make test` | `pytest` (random order) | `go test -race` |
 | `make audit` | `pip-audit` on `uv.lock` | `govulncheck` |
 
 Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make lint-docker` (hadolint and `docker build --check`), `make docker-build`, `make scan` (image CVE gate). Run `make` to list everything.
 
-**Lint rules.** Python enables every stable ruff rule and lists each exception with a reason in `pyproject.toml`; banned APIs include `pickle`, `marshal`, `shelve` and shell execution. mypy runs strict plus extra error codes. Go uses a curated golangci-lint set in `signer/.golangci.yml`, including `gosec`, `depguard` (no `math/rand` in the signer) and `forbidigo`. Every source file carries an SPDX license header (checked by ruff `CPY001`).
+**Lint rules.** Python enables every stable ruff rule and lists each exception with a reason in `pyproject.toml`; banned APIs include `pickle`, `marshal`, `shelve` and shell execution. Two type checkers with different engines must both pass: strict mypy with extra error codes, and Pyrefly. Go enables 78 golangci-lint linters in `signer/.golangci.yml`, including `gosec`, `depguard` (no `math/rand` in the signer), `forbidigo` and `modernize`; every linter left off is listed there with a reason.
 
-**Pre-commit hooks** run the formatters and linters plus `gitleaks` (secrets), `actionlint` and `zizmor` (GitHub Actions), and `hadolint` (Dockerfiles, needs Docker running).
+**Architecture contracts.** `lint-imports` (Import Linter) enforces security invariants of the design as import rules: the policy engine never imports the LLM layer, the LLM layer cannot reach tools, the chain or the store, and the core depends on no integration layer.
 
-**CI** runs Python on 3.13 and 3.14, Go lint and race tests, dependency audits, hadolint and image builds. Actions are pinned to commit SHAs; Dependabot updates actions, Python, Go and Docker base images weekly into `dev`.
+**Licensing.** The repo is [REUSE](https://reuse.software) compliant: `REUSE.toml` plus SPDX headers give every file a machine-readable license, checked on every commit.
+
+**Pre-commit hooks** run the formatters and linters plus `gitleaks` (secrets), `actionlint` and `zizmor` (GitHub Actions), `typos` (spelling), `reuse` (licensing), `uv-lock` (lock file in sync) and `hadolint` (Dockerfiles, needs Docker running).
+
+**CI** runs Python on 3.13 and 3.14, Go lint and race tests, the repo-wide hooks, dependency audits, hadolint, image builds and the image CVE gate. [CodeQL](https://codeql.github.com) scans Python, Go and the workflows with the extended security queries; [OpenSSF Scorecard](https://scorecard.dev) rates the repo's supply-chain practices weekly. Actions are pinned to commit SHAs; Dependabot updates actions, Python, Go and Docker base images weekly into `dev`, taking releases only after a week.
 
 ### Docker
 

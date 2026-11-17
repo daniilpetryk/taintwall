@@ -30,36 +30,53 @@ linters:
     - nilnesserr
     - nilnil
     - noctx
+    - nosprintfhostport
     - reassign
     - recvcheck
     - rowserrcheck
     - sqlclosecheck
+    - containedctx
+    - gochecknoinits
+    - iotamixing
+    - embeddedstructfieldcheck
     # security
     - gosec
     - depguard
     - forbidigo
+    - gomoddirectives
     # errors
     - err113
     - errname
     - wrapcheck
-    # complexity
+    # logging (the signer will log with log/slog)
+    - sloglint
+    - loggercheck
+    # complexity and duplication
     - cyclop
     - funlen
     - gocognit
     - nestif
+    - maintidx
+    - dupl
+    - goconst
+    - dogsled
     # style and modern Go
     - asciicheck
     - canonicalheader
     - dupword
     - exptostd
     - gocritic
+    - godoclint
     - godot
     - intrange
     - misspell
     - mirror
+    - modernize
     - nakedret
     - nolintlint
+    - nonamedreturns
     - perfsprint
+    - prealloc
     - predeclared
     - revive
     - unconvert
@@ -141,16 +158,42 @@ linters:
         - errors.Join(
         - .Wrap(
 
+    sloglint:
+      kv-only: false
+      attr-only: true # typed slog.Attr only: no mismatched key/value pairs
+      no-global: all # pass a *slog.Logger explicitly
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+    dupl:
+      threshold: 120
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
+
   exclusions:
     rules:
       - path: _test\.go
-        linters: [funlen, err113, wrapcheck, dupword]
+        linters: [funlen, err113, wrapcheck, dupword, dupl, goconst, maintidx]
 
-  # Off on purpose:
+  # Every linter golangci-lint ships that is not enabled above, with the reason:
   # - gochecknoglobals: buildinfo.Version is a global set by -ldflags
-  # - exhaustruct, varnamelen, wsl, nlreturn, lll: style churn, golines covers length
-  # - ireturn, interfacebloat: no interfaces yet; revisit in stage 5
-  # - mnd: noisy for byte sizes and limits; values live in named config instead
+  # - exhaustruct: forces every struct field at every literal; zero values are idiomatic
+  # - varnamelen, wsl, nlreturn, grouper, decorder, funcorder, tagalign,
+  #   inamedparam, noinlineerr: layout and naming style, not correctness
+  # - lll: golines formats to 120 columns instead
+  # - gocyclo: cyclop and gocognit cover complexity
+  # - mnd: noisy for byte sizes and limits; limits live in named config instead
+  # - ireturn, iface, interfacebloat: no interfaces yet; revisit in stage 5
+  # - gomodguard: depguard covers module bans
+  # - importas: no aliased imports to standardize yet
+  # - godox: TODOs are allowed while the code is young
+  # - goheader: REUSE lint checks license headers for the whole repo
+  # - testpackage: white-box tests are fine for internal packages
+  # - testableexamples, tagliatelle, gosmopolitan: no examples, tags or i18n yet
+  # - promlinter, spancheck, zerologlint, ginkgolinter, protogetter,
+  #   arangolint, clickhouselint, unqueryvet: libraries we do not use
 
 formatters:
   enable:
