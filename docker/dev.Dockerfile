@@ -10,14 +10,16 @@
 FROM golangci/golangci-lint:v2.15.0@sha256:fbfcfd12a6f8d7f1b97b3362ca80fc2a244d46863148c73cb88e7793af96c481 AS golangci
 
 FROM golang:1.27-trixie@sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d
-COPY --from=ghcr.io/astral-sh/uv:0.11.15@sha256:e590846f4776907b254ac0f44b5b380347af5d90d668138ca7938d1b0c2f98d3 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /uvx /bin/
 COPY --from=golangci /usr/bin/golangci-lint /usr/local/bin/golangci-lint
 # Toolchains are installed as root and read-only for everyone.
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN uv python install 3.14 && uv cache clean
 # Caches and the venv live under world-writable dirs, created empty, so any
-# host uid can use them through named volumes.
-ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+# host uid can use them through named volumes. The venv sits one level below
+# the volume root: uv recreates it by deleting the directory, and a mount
+# point itself cannot be deleted.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv/env \
     UV_CACHE_DIR=/cache/uv \
     UV_LINK_MODE=copy \
     GOMODCACHE=/cache/go-mod \

@@ -121,13 +121,15 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 Two ways to work: with local tools, or with only Docker.
 
 ```bash
-# local: uv (installs Python 3.14 and dev tools), Go 1.27+, golangci-lint v2
+# local: uv 0.13.x (installs Python 3.14 and dev tools), Go 1.27+, golangci-lint v2
 make setup          # Python env, dev dependencies, git hooks
 make check          # everything CI runs on code, both languages
 
 # Docker only: same toolchain as CI, nothing installed on the host
 make docker-check
 ```
+
+uv is pinned to one minor version everywhere: `[tool.uv] required-version` in `pyproject.toml` (uv refuses to run outside it), `setup-uv` in CI and the uv image in `docker/`. Bump all three together; new releases are taken only after a week, matching the Dependabot cooldown.
 
 | Command | Python | Go (`signer/`) |
 |---|---|---|
