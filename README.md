@@ -136,7 +136,7 @@ make docker-check
 | `make test` | `pytest` | `go test -race` |
 | `make audit` | `pip-audit` on `uv.lock` | `govulncheck` |
 
-Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make lint-docker` (hadolint), `make docker-build`. Run `make` to list everything.
+Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make lint-docker` (hadolint and `docker build --check`), `make docker-build`, `make scan` (image CVE gate). Run `make` to list everything.
 
 **Lint rules.** Python enables every stable ruff rule and lists each exception with a reason in `pyproject.toml`; banned APIs include `pickle`, `marshal`, `shelve` and shell execution. mypy runs strict plus extra error codes. Go uses a curated golangci-lint set in `signer/.golangci.yml`, including `gosec`, `depguard` (no `math/rand` in the signer) and `forbidigo`. Every source file carries an SPDX license header (checked by ruff `CPY001`).
 
@@ -149,8 +149,14 @@ Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make
 | Image | Base | Runs as |
 |---|---|---|
 | `docker/signer.Dockerfile` | distroless `static-debian13` | `nonroot`, no shell, no network in compose |
-| `docker/app.Dockerfile` | `python:3.14-slim-trixie` | `taintwall` (uid 10001), read-only filesystem |
-| `docker/dev.Dockerfile` | `golang:1.27-trixie` + uv + golangci-lint | root, on a bind-mounted checkout |
+| `docker/app.Dockerfile` | `python:3.14-slim-trixie` | `taintwall` (uid 10001), read-only filesystem, no pip |
+| `docker/dev.Dockerfile` | `golang:1.27-trixie` + uv + golangci-lint | your host uid via `make docker-check` |
+
+- **Pinned by digest.** Every base image is `tag@sha256:…`, so builds are reproducible; Dependabot bumps tag and digest together.
+- **Cross-compiled signer.** The Go build stage runs on the build machine's platform and targets `TARGETOS/TARGETARCH`, so `docker buildx build --platform linux/amd64,linux/arm64` needs no emulation. CI builds both.
+- **Security updates at build.** The app image applies Debian security updates released after its base and removes the system pip.
+- **Vulnerability gate.** `make scan` (and CI) runs Grype on the signer and app images and fails on High/Critical findings that already have a fix. Exceptions live in `.grype.yaml`, each scoped to the exact package version and dated.
+- **Not yet:** SBOM and provenance attestations attach to published images, so they arrive with image publishing in stage 6.
 
 `compose.yaml` also defines a local `anvil` chain behind the `chain` profile for stage 4: `docker compose --profile chain up anvil` (bound to localhost only).
 

@@ -1,12 +1,13 @@
 SIGNER    := signer
-HADOLINT  := hadolint/hadolint:v2.14.0
+HADOLINT  := hadolint/hadolint:v2.14.0@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e
+GRYPE     := anchore/grype:v0.122.0@sha256:013e16ae96bd64108973e3e9fecec63f7ff276358d34c46c25d33e2aac96539f
 GOVULN    := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 PIP_AUDIT := pip-audit==2.10.1
 
 .DEFAULT_GOAL := help
 .PHONY: help setup fmt lint test check cov audit hooks \
         py-lint py-test go-lint go-test lint-docker \
-        docker-build docker-check clean
+        docker-build docker-check scan scan-images clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -58,17 +59,30 @@ go-test: ## Go: tests with race detector
 
 # --- docker -------------------------------------------------------------------------
 
-lint-docker: ## Lint Dockerfiles with hadolint
+lint-docker: ## Lint Dockerfiles: hadolint plus BuildKit build checks
 	@for f in docker/*.Dockerfile; do \
 		echo "hadolint $$f"; \
 		docker run --rm -i -v "$(CURDIR)/.hadolint.yaml:/.config/hadolint.yaml:ro" $(HADOLINT) < $$f || exit 1; \
+		echo "build --check $$f"; \
+		docker build --quiet --check -f $$f . || exit 1; \
 	done
 
 docker-build: ## Build signer, app and dev images
 	docker compose build signer app dev
 
-docker-check: ## Run `make check` inside the dev container (same toolchain as CI)
-	docker compose run --rm dev sh -c 'uv sync --quiet && make check'
+docker-check: ## Run `make check` inside the dev container as the host user
+	docker compose run --rm --user "$$(id -u):$$(id -g)" dev sh -c 'uv sync --quiet && make check'
+
+scan: docker-build scan-images ## Build, then scan images for fixable High/Critical CVEs (Grype)
+
+scan-images: ## Scan already-built signer and app images (used by CI)
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	for img in taintwall-signer taintwall-app; do \
+		echo "grype $$img"; \
+		docker save "$${img}:latest" -o "$$tmp/$$img.tar" && \
+		docker run --rm -v "$$tmp:/scan:ro" -v "$(CURDIR)/.grype.yaml:/.grype.yaml:ro" \
+			$(GRYPE) "docker-archive:/scan/$$img.tar" --config /.grype.yaml || exit 1; \
+	done
 
 clean: ## Remove caches and build output
 	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov dist
