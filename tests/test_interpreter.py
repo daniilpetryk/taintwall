@@ -7,7 +7,6 @@ from collections.abc import Mapping
 
 import pytest
 
-from taintwall.core import InvalidSourceError, Label, Labeled, Source, SourceKind
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import (
     EventKind,
@@ -20,7 +19,14 @@ from taintwall.core.interpreter import (
     ToolNameClashError,
     TraceEvent,
 )
-from taintwall.core.labels import MAX_VALUE_DEPTH
+from taintwall.core.labels import (
+    MAX_VALUE_DEPTH,
+    InvalidSourceError,
+    Label,
+    Labeled,
+    Source,
+    SourceKind,
+)
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
 from taintwall.core.values import Record
@@ -257,6 +263,18 @@ class TestToolStamp:
         x = var("x = launder('a')", extra={"launder": launder})
         assert Source.tool("launder") in x.label.sources
         assert not x.label.only_from({SourceKind.PLAN, SourceKind.OWNER})
+
+    def test_keyword_arguments_reach_the_tool(self) -> None:
+        def pick(*, token: Labeled[object]) -> Labeled[object]:
+            return Labeled(token.value, Label.of(META))
+
+        x = var("x = pick(token='DAI')", extra={"pick": pick})
+        assert x.value == "DAI"
+        assert MINT.plan() in x.label.sources
+
+    def test_tool_argument_reads_report_the_call_line(self) -> None:
+        source = "t = (1,) * 1000\nu = (t,) * 1000\nv = (u,) * 1000\nx = get_balance(v)"
+        assert error(source).line == 4
 
     def test_tool_names_must_be_valid_sources(self) -> None:
         with pytest.raises(InvalidSourceError):

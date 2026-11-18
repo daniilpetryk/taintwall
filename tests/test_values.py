@@ -4,7 +4,7 @@
 
 import pytest
 
-from taintwall.core import Label, Labeled, Source
+from taintwall.core.labels import Label, Labeled, Source
 from taintwall.core.values import InvalidFieldError, NotLabeledFieldError, Record
 
 TOOL = Label.of(Source.tool("rpc"))

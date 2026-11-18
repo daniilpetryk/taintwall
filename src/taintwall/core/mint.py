@@ -11,8 +11,9 @@ enforce that in CI:
   ``taintwall.policy`` and ``taintwall.store`` may import this module, so new
   subpackages are excluded by default;
 * an architecture test (``tests/test_architecture.py``): the capability token
-  and the ``_mint`` argument may appear only in ``labels.py`` and here, because
-  importing the token straight from ``labels`` is invisible to import contracts.
+  and the ``_mint`` argument may appear only in ``labels/source.py``,
+  ``labels/label.py`` and here, because importing the token straight from
+  ``labels.source`` is invisible to import contracts.
 
 This guards against accidental laundering by our own code, such as a tool
 adapter labeling its output as a plan literal. It is not a sandbox: the threat
@@ -20,7 +21,8 @@ model already trusts runtime code, and in-process Python can always reach
 private names.
 """
 
-from taintwall.core.labels import _MINT_TOKEN, Label, Source, SourceKind
+from taintwall.core.labels.label import Label
+from taintwall.core.labels.source import _MINT_TOKEN, Source, SourceKind
 
 _OWNER_NAME = "owner"
 

@@ -12,7 +12,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from taintwall.core import (
+from taintwall.core.labels import (
+    MAX_NAME_LENGTH,
+    MAX_SOURCES_PER_KIND,
+    MAX_VALUE_DEPTH,
     EmptyLabelError,
     FormatProblem,
     InvalidKindError,
@@ -22,20 +25,15 @@ from taintwall.core import (
     Labeled,
     LabelFormatError,
     MutableValueError,
+    NonFiniteNumberError,
     NotALabelError,
     NotASourceError,
     Readers,
     Source,
     SourceKind,
+    UnmintedSourceError,
     ValueTooDeepError,
     join_all,
-)
-from taintwall.core.labels import (
-    MAX_NAME_LENGTH,
-    MAX_SOURCES_PER_KIND,
-    MAX_VALUE_DEPTH,
-    NonFiniteNumberError,
-    UnmintedSourceError,
 )
 from taintwall.core.mint import Mint
 

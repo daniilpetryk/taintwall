@@ -38,3 +38,5 @@ bench/**/runs/
 
 # hypothesis example database
 .hypothesis/
+coverage.xml
+mutants/

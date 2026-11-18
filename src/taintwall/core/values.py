@@ -52,7 +52,9 @@ class Record:
                 raise NotLabeledFieldError(name)
         if len(set(names)) != len(names):
             raise InvalidFieldError(names)
-        object.__setattr__(self, "fields", tuple(sorted(self.fields, key=lambda item: item[0])))
+        # Names are unique (checked above), so the key never ties.
+        ordered = tuple(sorted(self.fields, key=lambda item: item[0]))  # pragma: no mutate
+        object.__setattr__(self, "fields", ordered)
 
     @classmethod
     def of(cls, values: Mapping[str, Labeled[object]]) -> Self:
@@ -66,6 +68,10 @@ class Record:
         if position < len(self.fields) and self.fields[position][0] == name:
             return self.fields[position][1]
         return None
+
+    def __len__(self) -> int:
+        """Number of fields; an empty record is falsy, like an empty tuple."""
+        return len(self.fields)
 
     @property
     def names(self) -> tuple[str, ...]:
