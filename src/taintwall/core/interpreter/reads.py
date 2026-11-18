@@ -37,7 +37,9 @@ def subscript(context: Context, node: ast.expr) -> Ref:
     assert isinstance(node, ast.Subscript)  # noqa: S101 - dispatch guarantees the type
     container, index = context.expr(node.value), context.expr(node.slice)
     sequence, position = container.labeled.value, index.labeled.value
-    if isinstance(sequence, Record) and type(position) is str:
+    if isinstance(sequence, Record):
+        if type(position) is not str:
+            raise error_at(PlanErrorCode.TYPE_MISMATCH, node)
         return _field(context, node, container, position, index)
     if type(sequence) not in {tuple, str} or type(position) is not int:
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node)

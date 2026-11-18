@@ -41,11 +41,11 @@ def call_builtin(node: ast.Call, name: str, arguments: Arguments, guard: Guard) 
     function, arity = _FUNCTIONS[name]
     if arity is not None and len(args) != arity:
         raise error_at(PlanErrorCode.BAD_ARGUMENTS, node, name)
-    value = apply(node, function, *(plain(item.value, guard, node) for item in args))
+    value = apply(node, function, *(plain(item.value, guard) for item in args))
     if type(value) not in ATOMS:
         # min/max over sequences of containers: results must be atoms.
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node, name)
-    return value, join_all(*(deep_label(item, guard, node) for item in args))
+    return value, join_all(*(deep_label(item, guard) for item in args))
 
 
 def _length(node: ast.Call, args: tuple[Labeled[object], ...]) -> Result:

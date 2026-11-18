@@ -147,11 +147,34 @@ def test_module_names_say_what_they_hold(path: Path) -> None:
     assert path.stem not in QUALITY["banned_module_names"]
 
 
+def unexplained_pragmas(text: str) -> list[int]:
+    """Lines with ``pragma: no mutate`` and no reason, on the line or just above."""
+    lines = text.splitlines()
+    found = []
+    for number, line in enumerate(lines, start=1):
+        if "pragma: no mutate" not in line:
+            continue
+        reason_after = line.split("pragma: no mutate", 1)[1].strip(" -")
+        reason_above = number > 1 and lines[number - 2].strip().startswith("#")
+        if not reason_after and not reason_above:
+            found.append(number)
+    return found
+
+
+@pytest.mark.parametrize("path", modules(), ids=module_id)
+def test_mutation_exemptions_are_explained(path: Path) -> None:
+    # An exempt line must say why no test can tell the mutant apart.
+    assert unexplained_pragmas(path.read_text(encoding="utf-8")) == []
+
+
 def test_the_checks_see_violations() -> None:
     long_function = "def f():\n" + "    x = 1\n" * 50
     crowded = "class C:\n" + "".join(f"    def m{i}(self): pass\n" for i in range(20))
     assert oversized_functions(ast.parse(long_function), 40) == ["f (line 1): 51 lines"]
     assert crowded_classes(ast.parse(crowded), 15) == ["C (line 1): 20 methods"]
+    assert unexplained_pragmas("x = 1  # pragma: no mutate\n") == [1]
+    assert unexplained_pragmas("# lengths match\nx = 1  # pragma: no mutate\n") == []
+    assert unexplained_pragmas("x = 1  # pragma: no mutate - lengths match\n") == []
     packages = {"taintwall.core.labels"}
     assert reaches_inside("taintwall.policy", "taintwall.core.labels.source", packages)
     assert not reaches_inside("taintwall.policy", "taintwall.core.labels", packages)

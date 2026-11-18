@@ -25,6 +25,7 @@ pull request then shows the policy change as a diff.
 | Methods per class, private included | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 15 |
 | Module names that say nothing (`utils`, `helpers`, `common`, `misc`, `manager`, `base`) | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | banned |
 | Lines per test module and test function | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 700, 40 |
+| `# pragma: no mutate` without a written reason | `tests/test_code_quality.py` | | banned |
 | Packages used only through their `__init__` from outside | `tests/test_code_quality.py` | `allowed_internal_imports` | exceptions listed with a reason |
 | Duplicate code (6+ similar lines) | pylint `duplicate-code` only | `[tool.pylint]` | none |
 | Layering inside packages | Import Linter `layers` | `[tool.importlinter]` | see below |
@@ -32,7 +33,7 @@ pull request then shows the policy change as a diff.
 | Security boundaries (LLM, tools, chain, mint) | Import Linter `forbidden`, `protected` | `[tool.importlinter]` | see design.md |
 | Branch coverage, whole project | pytest-cov | `[tool.coverage.report] fail_under` | 95% |
 | Coverage of lines a pull request adds or changes | diff-cover | `.github/workflows/ci.yml` | 100% |
-| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 90% |
+| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 99.9%) |
 | Types | mypy strict + Pyrefly | `[tool.mypy]`, `[tool.pyrefly]` | both clean |
 | Unused or undeclared dependencies | deptry | `[tool.deptry]` | none |
 
@@ -92,9 +93,13 @@ test modules pin the contracts other stages depend on:
 - `tests/test_trace_contract.py`: one exact trace event per syntax node (kind,
   line, detail, inputs), which the viewer and later policies read.
 
-Surviving mutants that remain are mostly error-message wording and
-equivalent mutants (a change no behavior can observe). Raise the floor when
-the score rises.
+Every surviving mutant is either killed by a test or marked
+`# pragma: no mutate` with a comment proving it equivalent (a change no
+behavior can observe, such as `zip(strict=True)` where the lengths always
+match). Where a mutant showed dead or roundabout code, the code was
+simplified instead of tested: limit errors report the statement line held by
+`Guard`, so no syntax node is threaded through the helpers; `Record` has
+`len`, so truthiness is plain `bool`. Raise the floor when the score rises.
 
 ## One import path per name
 

@@ -73,6 +73,7 @@ class Evaluator:
 
     def statement(self, node: ast.stmt) -> None:
         """Run one top-level statement."""
+        self._guard.at(node)
         if isinstance(node, ast.Assign):
             target = node.targets[0]
             assert isinstance(target, ast.Name)  # noqa: S101 - parse_plan guarantees it
@@ -89,7 +90,7 @@ class Evaluator:
 
     def expr(self, node: ast.expr) -> Ref:
         """Evaluate one expression."""
-        self._guard.step(node)
+        self._guard.step()
         return _HANDLERS[type(node)](self, node)
 
     def variable(self, name: str) -> Ref | None:
@@ -99,7 +100,7 @@ class Evaluator:
     def new(self, result: Result, origin: Origin) -> Ref:
         """Make ``result`` a labeled value and record it in the trace."""
         value, label = result
-        self._guard.check_size(value, origin.node)
+        self._guard.check_size(value)
         try:
             labeled = Labeled(value, label)
         except (NonFiniteNumberError, ValueTooDeepError):

@@ -20,7 +20,7 @@ from typing import Final
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.walk import deep_label, plain, truthy
+from taintwall.core.interpreter.walk import deep_label, plain
 from taintwall.core.labels import Label, Labeled, join_all
 
 NUMBERS: Final = frozenset({int, float})
@@ -56,7 +56,7 @@ type Result = tuple[object, Label]
 """A computed value and its label."""
 
 
-def apply(node: ast.AST, function: Callable[..., object], *args: object) -> object:
+def apply(node: ast.expr, function: Callable[..., object], *args: object) -> object:
     """Call ``function``, turning Python errors into typed plan errors."""
     try:
         return function(*args)
@@ -80,7 +80,7 @@ def binary(node: ast.BinOp, left: Labeled[object], right: Labeled[object], guard
     if isinstance(node.op, ast.Mult):
         sequence, count = (a, b) if type(b) is int else (b, a)
         if type(count) is int and type(sequence) in {str, tuple}:
-            guard.check_repeat(sequence, count, node)  # type: ignore[arg-type]
+            guard.check_repeat(sequence, count)  # type: ignore[arg-type]
             return sequence * count, label  # type: ignore[operator]
     raise error_at(PlanErrorCode.TYPE_MISMATCH, node, type(node.op).__name__)
 
@@ -89,18 +89,21 @@ def unary(node: ast.UnaryOp, operand: Labeled[object]) -> Result:
     """``<op> operand``."""
     inner = operand.value
     if isinstance(node.op, ast.Not):
-        return not truthy(inner), operand.label
+        # Truthiness depends on emptiness only (``Record`` has ``len``), like ``len``.
+        return not inner, operand.label
     if type(inner) in NUMBERS:
-        return apply(node, _SIGN[type(node.op)], inner), operand.label
+        # Negating a finite int or float cannot fail.
+        return _SIGN[type(node.op)](inner), operand.label
     raise error_at(PlanErrorCode.TYPE_MISMATCH, node, type(node.op).__name__)
 
 
 def compare(node: ast.Compare, operands: Sequence[Labeled[object]], guard: Guard) -> Result:
     """A comparison chain such as ``a < b <= c``; every operand is evaluated."""
     result = True
-    for op, left, right in zip(node.ops, operands, operands[1:], strict=False):
+    # One operator between each pair of operands, so the lengths always match.
+    for op, left, right in zip(node.ops, operands, operands[1:], strict=False):  # pragma: no mutate
         check = _COMPARE[type(op)]
         result = result and bool(
-            apply(node, check, plain(left.value, guard, node), plain(right.value, guard, node))
+            apply(node, check, plain(left.value, guard), plain(right.value, guard))
         )
-    return result, join_all(*(deep_label(item, guard, node) for item in operands))
+    return result, join_all(*(deep_label(item, guard) for item in operands))

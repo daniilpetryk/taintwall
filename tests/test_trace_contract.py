@@ -24,8 +24,12 @@ def info() -> Labeled[object]:
     return Labeled(Record.of({"name": Labeled("usdc", TOOL)}), TOOL)
 
 
+def echo(item: Labeled[object]) -> Labeled[object]:
+    return Labeled(item.value, TOOL)
+
+
 def run(source: str) -> RunResult:
-    interpreter = Interpreter({"info": info}, requester=MINT.owner(), mint=MINT)
+    interpreter = Interpreter({"info": info, "echo": echo}, requester=MINT.owner(), mint=MINT)
     return interpreter.run(parse_plan(source))
 
 
@@ -55,6 +59,8 @@ K = EventKind
         ("x = 0 or b", K.OPERATION, "Or", ["", ""]),
         ("x = len((a, b))", K.OPERATION, "len", ["sequence"]),
         ("x = info()", K.CALL, "info", []),
+        ("x = echo(a)", K.CALL, "echo", [""]),
+        ("x = echo(item=b)", K.CALL, "echo", [""]),
         ("x = info().name", K.FIELD, "name", ["info"]),
         ("x = info()['name']", K.FIELD, "", ["info", ""]),
         ("x = (a, b)[0]", K.INDEX, "", ["sequence", ""]),

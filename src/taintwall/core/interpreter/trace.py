@@ -12,7 +12,7 @@ import dataclasses
 import enum
 from typing import NamedTuple
 
-from taintwall.core.interpreter.location import line_of
+from taintwall.core.interpreter.location import Located, line_of
 from taintwall.core.labels import Label, Labeled
 
 
@@ -55,7 +55,7 @@ class Origin(NamedTuple):
     """How a new value was made: the trace event, without the value itself."""
 
     kind: EventKind
-    node: ast.AST
+    node: Located
     detail: str = ""
     inputs: tuple[int, ...] = ()
 
@@ -72,7 +72,7 @@ class Trace:
         self._append(value_id, labeled.label, origin)
         return Ref(labeled, value_id)
 
-    def assign(self, ref: Ref, name: str, node: ast.AST) -> None:
+    def assign(self, ref: Ref, name: str, node: ast.stmt) -> None:
         """Record that variable ``name`` now holds ``ref``."""
         self._append(ref.id, ref.labeled.label, Origin(EventKind.ASSIGN, node, name, (ref.id,)))
 

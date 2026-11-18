@@ -30,7 +30,7 @@ def sequence(context: Context, node: ast.expr) -> Ref:
     assert isinstance(node, ast.Tuple | ast.List)  # noqa: S101 - dispatch guarantees the type
     refs = [context.expr(item) for item in node.elts]
     value = tuple(ref.labeled for ref in refs)
-    check_nesting(value, context.guard, node)
+    check_nesting(value, context.guard)
     origin = Origin(EventKind.BUILD, node, "sequence", tuple(ref.id for ref in refs))
     return context.new((value, context.literal_label), origin)
 
@@ -41,10 +41,12 @@ def record(context: Context, node: ast.expr) -> Ref:
     names = [str(key.value) for key in node.keys if isinstance(key, ast.Constant)]
     refs = [context.expr(value) for value in node.values]
     try:
-        built = Record.of(dict(zip(names, (ref.labeled for ref in refs), strict=True)))
+        # parse_plan guarantees one key per value; strict only documents it.
+        fields = dict(zip(names, (ref.labeled for ref in refs), strict=True))  # pragma: no mutate
+        built = Record.of(fields)
     except (ValueError, TypeError):
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node, "record") from None
-    check_nesting(built, context.guard, node)
+    check_nesting(built, context.guard)
     origin = Origin(EventKind.BUILD, node, "record", tuple(ref.id for ref in refs))
     return context.new((built, context.literal_label), origin)
 
@@ -62,10 +64,11 @@ def formatted(context: Context, node: ast.expr) -> Ref:
                 raise error_at(PlanErrorCode.TYPE_MISMATCH, part, "format")
             parts.append(str(refs[-1].labeled.value))
         else:
-            parts.append(str(getattr(part, "value", "")))
+            assert isinstance(part, ast.Constant)  # noqa: S101 - f-string parts are one of the two
+            parts.append(str(part.value))
         length += len(parts[-1])
-        context.guard.check_string_length(length, part)
-    labels = (deep_label(ref.labeled, context.guard, node) for ref in refs)
+        context.guard.check_string_length(length)
+    labels = (deep_label(ref.labeled, context.guard) for ref in refs)
     label = join_all(context.literal_label, *labels)
     origin = Origin(EventKind.OPERATION, node, "format", tuple(ref.id for ref in refs))
     return context.new(("".join(parts), label), origin)

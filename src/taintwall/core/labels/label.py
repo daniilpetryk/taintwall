@@ -38,7 +38,7 @@ class Readers(enum.Enum):
 
     def meet(self, other: Self) -> Self:
         """The more restrictive of the two."""
-        return self if self.value >= other.value else other
+        return type(self)(max(self.value, other.value))
 
 
 def _normalize(sources: frozenset[Source]) -> frozenset[Source]:

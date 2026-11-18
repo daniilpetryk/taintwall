@@ -10,8 +10,8 @@ from a per-run budget.
 import ast
 import dataclasses
 
-from taintwall.core.errors import PlanErrorCode
-from taintwall.core.interpreter.location import error_at
+from taintwall.core.errors import PlanError, PlanErrorCode
+from taintwall.core.interpreter.location import line_of
 from taintwall.core.values import Record
 
 
@@ -53,45 +53,57 @@ class Limits:
 
 
 class Guard:
-    """Counts the steps and reads of one run and checks value sizes."""
+    """Counts the steps and reads of one run and checks value sizes.
+
+    A limit error reports the line of the statement being run (``at``), so
+    the helpers that read values need no syntax node of their own.
+    """
 
     def __init__(self, limits: Limits) -> None:
         self._limits = limits
         self.steps = 0
         self._visits = 0
+        # Set by ``at`` before any statement runs, so the start value is never read.
+        self._line: int | None = None  # pragma: no mutate
 
-    def step(self, node: ast.AST) -> None:
+    def at(self, statement: ast.stmt) -> None:
+        """Start counting for ``statement``: later limit errors point at it."""
+        self._line = line_of(statement)
+
+    def fail(self, code: PlanErrorCode) -> PlanError:
+        """A ``PlanError`` with ``code`` at the current statement."""
+        return PlanError(code, self._line)
+
+    def step(self) -> None:
         """Count one evaluated expression."""
         self.steps += 1
         if self.steps > self._limits.max_steps:
-            raise error_at(PlanErrorCode.STEP_LIMIT, node)
+            raise self.fail(PlanErrorCode.STEP_LIMIT)
 
-    def visit(self, node: ast.AST) -> None:
+    def visit(self) -> None:
         """Count one nested element read."""
         self._visits += 1
         if self._visits > self._limits.max_visits:
-            raise error_at(PlanErrorCode.STEP_LIMIT, node)
+            raise self.fail(PlanErrorCode.STEP_LIMIT)
 
-    def check_string_length(self, length: int, node: ast.AST) -> None:
+    def check_string_length(self, length: int) -> None:
         """Reject a string length before the string is built."""
         if length > self._limits.max_string:
-            raise error_at(PlanErrorCode.VALUE_TOO_LARGE, node)
+            raise self.fail(PlanErrorCode.VALUE_TOO_LARGE)
 
-    def check_repeat(self, sequence: str | tuple[object, ...], count: int, node: ast.AST) -> None:
-        """Reject ``sequence * count`` before it is built."""
-        is_str = type(sequence) is str
-        limit = self._limits.max_string if is_str else self._limits.max_items
-        if len(sequence) * max(count, 0) > limit:
-            raise error_at(PlanErrorCode.VALUE_TOO_LARGE, node)
+    def check_repeat(self, sequence: str | tuple[object, ...], count: int) -> None:
+        """Reject ``sequence * count`` before it is built (a count below 1 is empty)."""
+        limit = self._limits.max_string if type(sequence) is str else self._limits.max_items
+        if len(sequence) * count > limit:
+            raise self.fail(PlanErrorCode.VALUE_TOO_LARGE)
 
-    def check_size(self, value: object, node: ast.AST) -> None:
+    def check_size(self, value: object) -> None:
         """Reject a built value that is over a size limit."""
         limits = self._limits
         too_large = (
             (type(value) is str and len(value) > limits.max_string)
-            or (type(value) is tuple and len(value) > limits.max_items)
+            or (type(value) in {tuple, Record} and len(value) > limits.max_items)  # type: ignore[arg-type]
             or (type(value) is int and value.bit_length() > limits.max_int_bits)
-            or (isinstance(value, Record) and len(value.fields) > limits.max_items)
         )
         if too_large:
-            raise error_at(PlanErrorCode.VALUE_TOO_LARGE, node)
+            raise self.fail(PlanErrorCode.VALUE_TOO_LARGE)

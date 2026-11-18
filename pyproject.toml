@@ -280,7 +280,7 @@ max_module_lines = 300       # physical lines per source module
 max_function_lines = 40      # lines per function or method, docstring included
 max_class_methods = 15       # methods per class, private ones included
 banned_module_names = ["utils", "helpers", "common", "misc", "manager", "base"]
-min_mutation_score = 90.0    # % of core mutants the tests catch (nightly); ratchet up
+min_mutation_score = 98.0    # % of core mutants the tests catch (nightly); ratchet up
 max_test_module_lines = 700  # tests: one file per module under test
 max_test_function_lines = 40
 # Packages below the top level (taintwall.core.labels, ...) are used only

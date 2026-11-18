@@ -6,13 +6,15 @@ import ast
 
 from taintwall.core.errors import PlanError, PlanErrorCode
 
-
-def line_of(node: ast.AST) -> int | None:
-    """The plan line of ``node``, or ``None`` if it has none."""
-    line = getattr(node, "lineno", None)
-    return line if type(line) is int else None
+type Located = ast.stmt | ast.expr
+"""A syntax node with a line: statements and expressions always have one."""
 
 
-def error_at(code: PlanErrorCode, node: ast.AST, detail: str = "") -> PlanError:
+def line_of(node: Located) -> int:
+    """The plan line of ``node``."""
+    return node.lineno
+
+
+def error_at(code: PlanErrorCode, node: Located, detail: str = "") -> PlanError:
     """A ``PlanError`` at ``node``'s line. ``detail`` must be plan text, never data."""
     return PlanError(code, line_of(node), detail)

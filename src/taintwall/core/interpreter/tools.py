@@ -29,6 +29,18 @@ value. A call with the wrong arguments fails as ``TOOL_FAILED``.
 """
 
 
+def _call_isolated(tool: Tool, arguments: Arguments) -> object:
+    """The tool's result, or ``None`` if it raised.
+
+    The caller raises ``TOOL_FAILED`` outside any handler: the tool's
+    exception text may carry an injection and must not ride along as
+    ``__cause__`` or ``__context__`` (decision Q3).
+    """
+    with contextlib.suppress(Exception, SystemExit):
+        return tool(*arguments.positional, **arguments.keyword)
+    return None  # pragma: no mutate - any non-Labeled result is TOOL_FAILED
+
+
 class ToolNameClashError(ValueError):
     """A tool would shadow a builtin of the plan language."""
 
@@ -52,15 +64,10 @@ class Toolbox:
     def call(self, node: ast.Call, name: str, arguments: Arguments, guard: Guard) -> Result:
         """Call tool ``name``; it must exist (``name in toolbox``)."""
         tool, stamp = self._tools[name]
-        result: object = None
-        # Any tool failure becomes one typed code, raised below outside the
-        # handler: the tool's exception text may carry an injection and must
-        # not ride along as ``__cause__`` or ``__context__`` (decision Q3).
-        with contextlib.suppress(Exception, SystemExit):
-            result = tool(*arguments.positional, **arguments.keyword)
+        result = _call_isolated(tool, arguments)
         if not isinstance(result, Labeled):
             raise error_at(PlanErrorCode.TOOL_FAILED, node, name)
         # The stamp means a tool cannot launder data by returning it under a
         # trusted label it received.
-        inputs = (deep_label(item, guard, node) for item in arguments.all)
+        inputs = (deep_label(item, guard) for item in arguments.all)
         return result.value, join_all(stamp, result.label, *inputs)

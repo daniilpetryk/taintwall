@@ -83,6 +83,7 @@ def test_runtime_errors(source: str, code: PlanErrorCode, line: int, detail: str
         ("import os", "Import"),
         ("x = (y := 1)", "NamedExpr"),
         ("x = a.__class__", "private name"),
+        ("x = _p", "private name"),
         ("x = f(_p=1)", "private name"),
         ("x = f(*a)", "star argument"),
         ("x = f(**a)", "keyword unpacking"),

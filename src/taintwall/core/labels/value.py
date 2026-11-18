@@ -105,7 +105,8 @@ def _immutable_children(item: object) -> Iterable[object]:
 
 
 def _check_timezone(item: object) -> None:
-    tzinfo = getattr(item, "tzinfo", None)
+    assert isinstance(item, dt.datetime | dt.time)  # noqa: S101 - the rule checked the type
+    tzinfo = item.tzinfo
     if tzinfo is not None and type(tzinfo) not in _IMMUTABLE_TIMEZONES:
         raise MutableValueError(tzinfo)
 
@@ -179,10 +180,11 @@ def _is_slotless_tuple(item_type: type) -> bool:
 
 
 def _is_frozen_dataclass(item: object) -> bool:
-    if not dataclasses.is_dataclass(item) or isinstance(item, type):
+    """A frozen dataclass instance (not the class itself)."""
+    if isinstance(item, type) or not dataclasses.is_dataclass(item):
         return False
-    params = getattr(type(item), "__dataclass_params__", None)
-    return bool(getattr(params, "frozen", False))
+    params = getattr(type(item), "__dataclass_params__")  # noqa: B009 - not in the type stubs
+    return bool(params.frozen)
 
 
 type _Rule = tuple[Callable[[object], bool], Callable[[object], Iterable[object]]]

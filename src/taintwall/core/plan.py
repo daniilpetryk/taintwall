@@ -90,10 +90,12 @@ def parse_plan(source: str) -> Plan:
     if len(source) > MAX_PLAN_CHARS:
         raise PlanError(PlanErrorCode.TOO_LARGE)
     try:
-        tree = ast.parse(source, mode="exec")
-    except (SyntaxError, ValueError) as err:
-        line = err.lineno if isinstance(err, SyntaxError) else None
-        raise PlanError(PlanErrorCode.SYNTAX, line) from None
+        tree = ast.parse(source)
+    except SyntaxError as err:
+        raise PlanError(PlanErrorCode.SYNTAX, err.lineno) from None
+    except ValueError:
+        # Older CPython raised ValueError for some malformed sources.
+        raise PlanError(PlanErrorCode.SYNTAX) from None
     except (MemoryError, RecursionError):
         # CPython's parser gives up on very deep nesting before our check.
         raise PlanError(PlanErrorCode.TOO_DEEP) from None
@@ -104,13 +106,15 @@ def parse_plan(source: str) -> Plan:
     return Plan(source, tree)
 
 
-def _check_depth(tree: ast.AST) -> None:
-    pending: list[tuple[ast.AST, int]] = [(tree, 0)]
+def _check_depth(tree: ast.Module) -> None:
+    # Nodes such as ``Load`` have no line; they report their parent's.
+    pending: list[tuple[ast.AST, int, int | None]] = [(tree, 0, None)]
     while pending:
-        node, depth = pending.pop()
+        node, depth, line = pending.pop()
+        line = getattr(node, "lineno", line)
         if depth > MAX_PLAN_DEPTH:
-            raise PlanError(PlanErrorCode.TOO_DEEP, getattr(node, "lineno", None))
-        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+            raise PlanError(PlanErrorCode.TOO_DEEP, line)
+        pending.extend((child, depth + 1, line) for child in ast.iter_child_nodes(node))
 
 
 def _unsupported(node: ast.AST, detail: str) -> PlanError:
@@ -132,8 +136,13 @@ def _check_assign(node: ast.AST) -> None:
 
 
 def _check_name(node: ast.AST) -> None:
-    name = node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
-    _check_identifier(node, name)
+    assert isinstance(node, ast.Name)  # noqa: S101 - dispatch guarantees the type
+    _check_identifier(node, node.id)
+
+
+def _check_attribute(node: ast.AST) -> None:
+    assert isinstance(node, ast.Attribute)  # noqa: S101 - dispatch guarantees the type
+    _check_identifier(node, node.attr)
 
 
 def _check_identifier(node: ast.AST, name: str) -> None:
@@ -155,7 +164,8 @@ def _check_ascii_names(source: str) -> None:
 
 
 def _check_constant(node: ast.AST) -> None:
-    if type(getattr(node, "value", None)) not in _ALLOWED_CONSTANTS:
+    assert isinstance(node, ast.Constant)  # noqa: S101 - dispatch guarantees the type
+    if type(node.value) not in _ALLOWED_CONSTANTS:
         raise _unsupported(node, "constant type")
 
 
@@ -188,7 +198,7 @@ def _check_dict(node: ast.AST) -> None:
 _NODE_CHECKS: Final[dict[type[ast.AST], Callable[[ast.AST], None]]] = {
     ast.Assign: _check_assign,
     ast.Name: _check_name,
-    ast.Attribute: _check_name,
+    ast.Attribute: _check_attribute,
     ast.Constant: _check_constant,
     ast.Call: _check_call,
     ast.FormattedValue: _check_formatted,
