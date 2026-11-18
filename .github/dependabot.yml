@@ -16,6 +16,14 @@ updates:
       python: { patterns: ["*"] }
     cooldown: { default-days: 7 }
 
+  - package-ecosystem: uv
+    directory: /bench/agentdojo
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      bench-agentdojo: { patterns: ["*"] }
+    cooldown: { default-days: 7 }
+
   - package-ecosystem: gomod
     directory: /signer
     schedule: { interval: weekly }

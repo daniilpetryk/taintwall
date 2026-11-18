@@ -1,0 +1,24 @@
+[project]
+name = "taintwall-bench-agentdojo"
+version = "0.0.0"
+description = "AgentDojo runs for taintwall: plain-agent baseline, later the taintwall pipeline."
+requires-python = ">=3.13,<3.14"
+license = "Apache-2.0"
+dependencies = [
+    "agentdojo==0.1.35",
+    "openai>=1.59.7",
+    "python-dotenv>=1.0.1",
+]
+
+[tool.uv]
+required-version = ">=0.13.7,<0.14"
+package = false
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+
+[[tool.mypy.overrides]]
+# AgentDojo ships no type information.
+module = ["agentdojo.*"]
+ignore_missing_imports = true
