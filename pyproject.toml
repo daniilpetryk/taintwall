@@ -58,6 +58,19 @@ src = ["src", "tests"]
 # Opt-out style: every stable rule is on, exceptions are listed with a reason.
 # The ruff version is pinned in uv.lock, so new rules arrive only on upgrade.
 select = ["ALL"]
+# Design rules still in ruff preview, opted in one by one (clean-code gates,
+# see docs/code-quality.md). Other preview rules stay off.
+preview = true
+explicit-preview-rules = true
+extend-select = [
+    "PLR0904",  # too many public methods on a class
+    "PLR0914",  # too many local variables
+    "PLR0916",  # too many boolean expressions in one condition
+    "PLR0917",  # too many positional parameters
+    "PLR1702",  # blocks nested too deeply
+    "PLR6301",  # method that does not use self: make it a function
+    "PLC2701",  # importing a private name from another module
+]
 ignore = [
     "COM812",  # trailing commas: handled by the formatter
     "D105",    # docstrings on magic methods: noise
@@ -67,8 +80,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# The mint is the one place allowed to use the capability token, which is
+# private on purpose (also guarded by tests/test_architecture.py).
+# Its methods use no state on purpose: holding a Mint instance is the
+# capability, so they stay instance methods (PLR6301).
+"src/taintwall/core/mint.py" = ["PLC2701", "PLR6301"]
 "tests/**" = [
     "S101",     # assert is how pytest works
+    "PLR6301",  # test classes group tests; methods need not use self
+    "PLR0904",  # a test class may hold many tests
+    "PLC2701",  # tests may reach into private helpers
     "D",        # test names are the documentation
     "PLR2004",  # magic values are normal in expected results
     "INP001",   # tests/ is not a package
@@ -80,14 +101,20 @@ convention = "google"
 [tool.ruff.lint.isort]
 known-first-party = ["taintwall"]
 
+# Size and complexity limits: the numbers are the policy (docs/code-quality.md).
 [tool.ruff.lint.mccabe]
-max-complexity = 10
+max-complexity = 8
 
 [tool.ruff.lint.pylint]
-max-args = 6
-max-branches = 12
-max-returns = 6
-max-statements = 50
+max-args = 5
+max-positional-args = 5
+max-branches = 10
+max-returns = 5
+max-statements = 40
+max-locals = 12
+max-public-methods = 12
+max-bool-expr = 4
+max-nested-blocks = 3
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -172,10 +199,51 @@ type = "protected"
 protected_modules = ["taintwall.core.mint"]
 allowed_importers = ["taintwall.core", "taintwall.policy", "taintwall.store"]
 
+# Layers: a module may import only from layers below it. "a | b" are
+# independent: same level, and they may not import each other.
+
+[[tool.importlinter.contracts]]
+name = "Core layers: interpreter > plan, values, mint > labels, errors"
+type = "layers"
+containers = ["taintwall.core"]
+layers = ["interpreter", "plan | values | mint", "labels | errors"]
+
+[[tool.importlinter.contracts]]
+name = "Interpreter layers: entry point down to limits and trace"
+type = "layers"
+containers = ["taintwall.core.interpreter"]
+layers = [
+    "runtime",
+    "evaluator",
+    "reads | literals | operations",
+    "context",
+    "tools",
+    "builtins",
+    "operators",
+    "walk",
+    "limits | trace",
+    "arguments | location",
+]
+
+[[tool.importlinter.contracts]]
+name = "Label layers: values > labels > sources > errors"
+type = "layers"
+containers = ["taintwall.core.labels"]
+layers = ["value", "label", "source", "errors"]
+
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
 type = "acyclic_siblings"
 ancestors = ["taintwall"]
+
+# --- clean-code limits ruff cannot express ----------------------------------
+# Read by tests/test_architecture.py; see docs/code-quality.md.
+
+[tool.taintwall.quality]
+max_module_lines = 300       # physical lines per source module
+max_function_lines = 40      # lines per function or method, docstring included
+max_class_methods = 15       # methods per class, private ones included
+banned_module_names = ["utils", "helpers", "common", "misc", "manager", "base"]
 
 # --- typos: spelling ---------------------------------------------------------
 
@@ -206,6 +274,8 @@ source = ["taintwall"]
 branch = true
 
 [tool.coverage.report]
+# CI fails below this (pytest --cov reads it). Branch coverage, see run.branch.
+fail_under = 95
 show_missing = true
 skip_covered = true
 exclude_also = [

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Architecture guards that import contracts cannot express.
 
-The mint capability token lives in ``labels.py`` (which every layer imports),
-so an import contract cannot stop ``from taintwall.core.labels import
-_MINT_TOKEN``. This test parses every source file and allows the token, and the
+The mint capability token lives in ``labels/source.py`` (which every layer
+imports), so an import contract cannot stop ``from taintwall.core.labels.source
+import _MINT_TOKEN``. This test parses every source file and allows the token, and the
 ``_mint`` argument that carries it, only where minting is implemented.
 """
 
@@ -14,7 +14,11 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "taintwall"
-MINT_HOMES = {SRC / "core" / "labels.py", SRC / "core" / "mint.py"}
+MINT_HOMES = {
+    SRC / "core" / "labels" / "source.py",
+    SRC / "core" / "labels" / "label.py",
+    SRC / "core" / "mint.py",
+}
 FORBIDDEN_NAMES = {"_MINT_TOKEN", "_MintToken"}
 FORBIDDEN_ARGUMENT = "_mint"
 
@@ -50,6 +54,7 @@ def test_only_the_mint_touches_the_capability(path: Path) -> None:
     "code",
     [
         "from taintwall.core.labels import _MINT_TOKEN",
+        "from taintwall.core.labels.source import _MINT_TOKEN",
         "import taintwall.core.labels as labels\nlabels._MINT_TOKEN",
         "Source(kind, name, _mint=token)",
         "source._mint",
