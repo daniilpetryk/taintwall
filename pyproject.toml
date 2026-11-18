@@ -165,6 +165,12 @@ source_modules = ["taintwall.core"]
 forbidden_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
 
 [[tool.importlinter.contracts]]
+name = "Only core, policy and store can mint trusted provenance"
+type = "forbidden"
+source_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
+forbidden_modules = ["taintwall.core.mint"]
+
+[[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
 type = "acyclic_siblings"
 ancestors = ["taintwall"]

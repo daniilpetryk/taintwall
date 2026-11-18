@@ -3,19 +3,28 @@
 """Shared test configuration.
 
 Hypothesis profiles: ``dev`` (default) keeps local runs fast, ``ci`` searches
-harder. CI selects it with ``HYPOTHESIS_PROFILE=ci``.
+harder and prints a reproduction blob for every failure, since CI keeps no
+example database. CI selects it with ``HYPOTHESIS_PROFILE=ci``.
 """
 
 import os
 
+import pytest
 from hypothesis import HealthCheck, settings
+
+PROFILES = ("dev", "ci")
 
 settings.register_profile("dev", max_examples=200)
 settings.register_profile(
     "ci",
     max_examples=1000,
-    derandomize=False,
+    print_blob=True,
     suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
-settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
+
+_profile = os.environ.get("HYPOTHESIS_PROFILE", "dev")
+if _profile not in PROFILES:
+    message = f"HYPOTHESIS_PROFILE must be one of {PROFILES}, got {_profile!r}"
+    raise pytest.UsageError(message)
+settings.load_profile(_profile)

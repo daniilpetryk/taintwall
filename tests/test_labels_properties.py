@@ -25,7 +25,10 @@ from taintwall.core import (
     Source,
     SourceKind,
 )
-from taintwall.core.labels import MAX_SOURCES_PER_KIND
+from taintwall.core.labels import MAX_SOURCES_PER_KIND, TRUSTED_KINDS, UnmintedSourceError
+from taintwall.core.mint import Mint
+
+MINT = Mint()
 
 # A small name pool makes collisions and crowded kinds likely, so collapsing
 # into categories is exercised, not just plain unions.
@@ -33,8 +36,8 @@ NAMES = [f"n{i}" for i in range(MAX_SOURCES_PER_KIND + 3)]
 NON_OWNER_KINDS = [kind for kind in SourceKind if kind is not SourceKind.OWNER]
 
 sources = st.one_of(
-    st.just(Source.owner()),
-    st.builds(Source, kind=st.sampled_from(NON_OWNER_KINDS), name=st.sampled_from(NAMES)),
+    st.just(MINT.owner()),
+    st.builds(MINT.source, kind=st.sampled_from(NON_OWNER_KINDS), name=st.sampled_from(NAMES)),
     st.builds(Source.category, st.sampled_from(NON_OWNER_KINDS)),
 )
 readers = st.sampled_from(Readers)
@@ -44,7 +47,7 @@ labels = st.builds(
     readers=readers,
 )
 COLLAPSIBLE = {SourceKind.TOOL, SourceKind.PRINCIPAL, SourceKind.SYSTEM}
-TRUSTED_KINDS = {SourceKind.PLAN, SourceKind.OWNER, SourceKind.ADDRESS_BOOK}
+POLICY_TRUSTED = {SourceKind.PLAN, SourceKind.OWNER, SourceKind.ADDRESS_BOOK}
 
 json_values = st.recursive(
     st.none() | st.booleans() | st.integers() | st.text(max_size=20),
@@ -102,9 +105,9 @@ def test_no_collapsible_kind_exceeds_the_limit(a: Label) -> None:
 @given(labels, labels)
 def test_trust_is_monotone(a: Label, b: Label) -> None:
     # Joining can never turn an untrusted value into a trusted one.
-    if a.join(b).only_from(TRUSTED_KINDS):
-        assert a.only_from(TRUSTED_KINDS)
-        assert b.only_from(TRUSTED_KINDS)
+    if a.join(b).only_from(POLICY_TRUSTED):
+        assert a.only_from(POLICY_TRUSTED)
+        assert b.only_from(POLICY_TRUSTED)
 
 
 @given(labels)
@@ -126,7 +129,7 @@ def test_derive_label_covers_all_inputs(base: Label, others: list[Label]) -> Non
 @given(labels)
 def test_json_round_trip(a: Label) -> None:
     # Through real JSON text, as the label store will do.
-    assert Label.from_json(json.loads(json.dumps(a.to_json()))) == a
+    assert MINT.load_label(json.loads(json.dumps(a.to_json()))) == a
 
 
 @given(json_values)
@@ -139,7 +142,7 @@ def test_from_json_rejects_garbage_cleanly(data: object) -> None:
 @given(st.sampled_from(NON_OWNER_KINDS), st.text(max_size=40))
 def test_no_name_can_become_owner_or_category(kind: SourceKind, name: str) -> None:
     try:
-        source = Source(kind, name)
+        source = MINT.source(kind, name)
     except InvalidSourceError:
         return
     assert source.kind is not SourceKind.OWNER
@@ -162,8 +165,15 @@ def test_wrongly_typed_sources_are_rejected(kind: object, name: object) -> None:
 
 @given(st.one_of(junk, st.sets(sources, max_size=4)), junk)
 def test_wrongly_typed_labels_are_rejected(raw_sources: object, raw_readers: object) -> None:
-    errors = (EmptyLabelError, NotASourceError, InvalidReadersError, TypeError)
+    errors = (EmptyLabelError, NotASourceError, InvalidReadersError)
     with contextlib.suppress(*errors):
         label = Label(raw_sources, raw_readers)  # type: ignore[arg-type]
         assert isinstance(label.sources, frozenset)
         assert isinstance(label.readers, Readers)
+
+
+@given(st.sampled_from(sorted(TRUSTED_KINDS - {SourceKind.OWNER})), st.sampled_from(NAMES))
+def test_trusted_sources_cannot_be_created_without_the_mint(kind: SourceKind, name: str) -> None:
+    with contextlib.suppress(UnmintedSourceError):
+        Source(kind, name)
+        raise AssertionError(kind)

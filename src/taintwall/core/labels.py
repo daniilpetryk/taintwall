@@ -22,7 +22,11 @@ attacker-controlled (chat handles, tool names from MCP servers, tool output):
 * names must match a strict ASCII pattern; no string becomes the owner or a
   category, which are expressed by the kind and by ``name=None``;
 * labeled values must be immutable, checked by exact type and with a depth
-  limit, so a value cannot change behind its label.
+  limit, so a value cannot change behind its label;
+* precise sources of trusted kinds (``TRUSTED_KINDS``) can only be created
+  through ``taintwall.core.mint``, which the integration layers (llm, tools,
+  web3) are forbidden to import. Untrusted code can still describe where its
+  data came from, but it cannot create trusted provenance out of nothing.
 """
 
 import dataclasses
@@ -30,6 +34,7 @@ import datetime as dt
 import enum
 import fractions
 import re
+import reprlib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from decimal import Decimal
@@ -85,9 +90,38 @@ confirmations) or are singletons (plan, owner), so they always stay precise and
 keep their trust however many of them a value depends on.
 """
 
+TRUSTED_KINDS: Final = frozenset(
+    {
+        SourceKind.PLAN,
+        SourceKind.OWNER,
+        SourceKind.ADDRESS_BOOK,
+        SourceKind.VERIFIED_LIST,
+        SourceKind.USER_CONFIRMED,
+    }
+)
+"""Kinds a policy may treat as trusted; only ``taintwall.core.mint`` creates them."""
+
+
+class _MintToken:
+    """Capability that ``taintwall.core.mint`` passes to create trusted sources."""
+
+    __slots__ = ()
+
+
+_MINT_TOKEN: Final = _MintToken()
+
+
+_REPR: Final = reprlib.Repr(maxstring=_ERROR_PREVIEW, maxother=_ERROR_PREVIEW)
+
 
 def _preview(value: object) -> str:
-    return repr(value)[:_ERROR_PREVIEW]
+    """Bounded repr for error messages.
+
+    ``reprlib`` caps the size and falls back to ``<Type instance at ...>`` when
+    an object's own ``__repr__`` raises, so a hostile value cannot replace our
+    typed error with its own exception.
+    """
+    return _REPR.repr(value)[:_ERROR_PREVIEW]
 
 
 class InvalidSourceError(ValueError):
@@ -118,6 +152,13 @@ class NotASourceError(TypeError):
         super().__init__(f"label sources must be Source objects, got {_preview(item)}")
 
 
+class UnmintedSourceError(PermissionError):
+    """A trusted source was created outside ``taintwall.core.mint``."""
+
+    def __init__(self, kind: SourceKind) -> None:
+        super().__init__(f"{kind.value} sources can only be created by taintwall.core.mint")
+
+
 class EmptyLabelError(ValueError):
     """A label was created without any source."""
 
@@ -146,7 +187,9 @@ class FormatProblem(enum.Enum):
     SOURCE_KIND = "unknown source kind"
     SOURCE_NAME_TYPE = "source name must be a string or null"
     SOURCE_NAME = "source name is not valid for its kind"
-    LABEL_SHAPE = "label must be an object with exactly sources and readers"
+    UNMINTED = "trusted sources can only be loaded through taintwall.core.mint"
+    VERSION = "unsupported label format version"
+    LABEL_SHAPE = "label must be an object with exactly v, sources and readers"
     SOURCES_TYPE = "sources must be a list"
     NO_SOURCES = "a label needs at least one source"
     READERS = "unknown readers"
@@ -175,33 +218,25 @@ class Source:
 
     kind: SourceKind
     name: str | None
+    _mint: object = dataclasses.field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, SourceKind):
             raise InvalidKindError(self.kind)
-        if self.kind is SourceKind.OWNER:
-            if self.name != _OWNER_NAME:
-                raise InvalidSourceError(self.kind, self.name)
-            return
         name: object = self.name  # checked at runtime: callers may break the annotation
-        if name is None:
-            return
-        if (
+        if self.kind is SourceKind.OWNER:
+            if name != _OWNER_NAME:
+                raise InvalidSourceError(self.kind, name)
+        elif name is not None and (
             not isinstance(name, str)
             or len(name) > MAX_NAME_LENGTH
             or not _NAME_PATTERN.fullmatch(name)
         ):
             raise InvalidSourceError(self.kind, name)
-
-    @classmethod
-    def plan(cls) -> Self:
-        """A literal from the planner."""
-        return cls(SourceKind.PLAN, "literal")
-
-    @classmethod
-    def owner(cls) -> Self:
-        """The wallet owner."""
-        return cls(SourceKind.OWNER, _OWNER_NAME)
+        if self.kind in TRUSTED_KINDS and name is not None and self._mint is not _MINT_TOKEN:
+            raise UnmintedSourceError(self.kind)
+        # Never keep the capability on the instance, where anyone could read it.
+        object.__setattr__(self, "_mint", None)
 
     @classmethod
     def principal(cls, identity: str) -> Self:
@@ -214,13 +249,11 @@ class Source:
         return cls(SourceKind.TOOL, name)
 
     @classmethod
-    def user_confirmed(cls, call_id: str) -> Self:
-        """A value the owner confirmed for the call ``call_id`` only."""
-        return cls(SourceKind.USER_CONFIRMED, call_id)
-
-    @classmethod
     def category(cls, kind: SourceKind) -> Self:
-        """Every source of ``kind`` at once. The owner has no category."""
+        """Every source of ``kind`` at once. The owner has no category.
+
+        Categories need no minting: they never pass a trust predicate.
+        """
         if kind is SourceKind.OWNER:
             raise InvalidSourceError(kind, None)
         return cls(kind, None)
@@ -239,8 +272,10 @@ class Source:
         return {"kind": self.kind.value, "name": self.name}
 
     @classmethod
-    def from_json(cls, data: object) -> Self:
+    def from_json(cls, data: object, *, _mint: object = None) -> Self:
         """Rebuild a source from ``to_json`` output, validating every field.
+
+        Trusted sources load only through ``taintwall.core.mint``.
 
         Raises:
             LabelFormatError: for any malformed input.
@@ -253,9 +288,11 @@ class Source:
         if name is not None and type(name) is not str:
             raise LabelFormatError(FormatProblem.SOURCE_NAME_TYPE)
         try:
-            return cls(SourceKind(kind), name)
+            return cls(SourceKind(kind), name, _mint)
         except InvalidSourceError as err:
             raise LabelFormatError(FormatProblem.SOURCE_NAME) from err
+        except UnmintedSourceError as err:
+            raise LabelFormatError(FormatProblem.UNMINTED) from err
 
     @override
     def __str__(self) -> str:
@@ -312,7 +349,10 @@ class Label:
     readers: Readers = Readers.PUBLIC
 
     def __post_init__(self) -> None:
-        sources = frozenset(self.sources)
+        try:
+            sources = frozenset(self.sources)
+        except TypeError as err:  # not iterable, or unhashable items
+            raise NotASourceError(self.sources) from err
         if not sources:
             raise EmptyLabelError
         for item in sources:
@@ -353,6 +393,9 @@ class Label:
     def only_from(self, kinds: Iterable[SourceKind]) -> bool:
         """Whether every source is a precise source of one of ``kinds``."""
         allowed = frozenset(kinds)
+        for kind in allowed:
+            if not isinstance(kind, SourceKind):
+                raise InvalidKindError(kind)
         return self.all_sources(lambda source: source.kind in allowed)
 
     @property
@@ -376,28 +419,33 @@ class Label:
         """Plain-data form for storage, with sources in a stable order."""
         ordered = sorted(self.sources, key=str)
         return {
+            "v": LABEL_FORMAT_VERSION,
             "sources": [source.to_json() for source in ordered],
-            "readers": self.readers.name.lower(),
+            "readers": _READERS_CODE[self.readers],
         }
 
     @classmethod
-    def from_json(cls, data: object) -> Self:
+    def from_json(cls, data: object, *, _mint: object = None) -> Self:
         """Rebuild a label from ``to_json`` output, validating every field.
+
+        Labels with trusted sources load only through ``taintwall.core.mint``.
 
         Raises:
             LabelFormatError: for any malformed input, never another error.
         """
-        if not isinstance(data, Mapping) or set(data) != {"sources", "readers"}:
+        if not isinstance(data, Mapping) or set(data) != {"v", "sources", "readers"}:
             raise LabelFormatError(FormatProblem.LABEL_SHAPE)
-        raw_sources, raw_readers = data["sources"], data["readers"]
+        version, raw_sources, raw_readers = data["v"], data["sources"], data["readers"]
+        if type(version) is not int or version != LABEL_FORMAT_VERSION:
+            raise LabelFormatError(FormatProblem.VERSION)
         if type(raw_sources) is not list:
             raise LabelFormatError(FormatProblem.SOURCES_TYPE)
         if not raw_sources:
             raise LabelFormatError(FormatProblem.NO_SOURCES)
-        readers = _READERS_BY_NAME.get(raw_readers) if type(raw_readers) is str else None
+        readers = _READERS_BY_CODE.get(raw_readers) if type(raw_readers) is str else None
         if readers is None:
             raise LabelFormatError(FormatProblem.READERS)
-        return cls(frozenset(Source.from_json(item) for item in raw_sources), readers)
+        return cls(frozenset(Source.from_json(item, _mint=_mint) for item in raw_sources), readers)
 
     @override
     def __str__(self) -> str:
@@ -405,7 +453,12 @@ class Label:
         return f"{{{names}}} readers={self.readers.name.lower()}"
 
 
-_READERS_BY_NAME: Final = {member.name.lower(): member for member in Readers}
+LABEL_FORMAT_VERSION: Final = 1
+"""Version of the ``to_json`` format; bump it, and add a migration, on any change."""
+
+# Explicit, stable storage codes: renaming an enum member must not break stored labels.
+_READERS_CODE: Final = {Readers.PUBLIC: "public", Readers.USER: "user"}
+_READERS_BY_CODE: Final = {code: readers for readers, code in _READERS_CODE.items()}
 
 
 def join_all(first: Label, *rest: Label) -> Label:
@@ -466,16 +519,30 @@ def _check_immutable(value: object) -> None:
         if isinstance(item, enum.Enum):
             pending.append((item.value, depth + 1))
             continue
-        if item_type is tuple or item_type is frozenset:
+        if item_type is tuple or item_type is frozenset or _is_slotless_tuple(item_type):
             pending.extend((child, depth + 1) for child in item)  # type: ignore[attr-defined]
             continue
         if _is_frozen_dataclass(item):
+            field_names = {field.name for field in dataclasses.fields(item)}  # type: ignore[arg-type]
+            if set(getattr(item, "__dict__", {})) - field_names:
+                raise MutableValueError(item)  # state hidden outside the declared fields
             pending.extend(
                 (getattr(item, field.name), depth + 1)
                 for field in dataclasses.fields(item)  # type: ignore[arg-type]
             )
             continue
         raise MutableValueError(item)
+
+
+def _is_slotless_tuple(item_type: type) -> bool:
+    """A tuple subclass that adds no instance state, such as a NamedTuple."""
+    if not issubclass(item_type, tuple):
+        return False
+    return all(
+        cls.__dict__.get("__slots__") == ()
+        for cls in item_type.__mro__
+        if cls not in {tuple, object}
+    )
 
 
 def _is_frozen_dataclass(item: object) -> bool:
@@ -485,13 +552,16 @@ def _is_frozen_dataclass(item: object) -> bool:
     return bool(getattr(params, "frozen", False))
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True, eq=False)
 class Labeled[T]:
     """A value together with its provenance label.
 
     The value must be immutable (see ``_check_immutable``), so it cannot change
     behind its label. There is no operator overloading: operations on labeled
     values go through the interpreter, which joins labels explicitly.
+
+    Equality includes the value's type, so ``1``, ``True`` and ``1.0`` with the
+    same label stay distinct (Python's ``1 == True == 1.0`` would merge them).
     """
 
     value: T
@@ -501,6 +571,20 @@ class Labeled[T]:
         if not isinstance(self.label, Label):
             raise NotALabelError(self.label)
         _check_immutable(self.value)
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Labeled):
+            return NotImplemented
+        return (
+            type(self.value) is type(other.value)
+            and self.value == other.value
+            and self.label == other.label
+        )
+
+    @override
+    def __hash__(self) -> int:
+        return hash((type(self.value), self.value, self.label))
 
     def derive[U](self, value: U, *inputs: "Labeled[object]") -> "Labeled[U]":
         """A new value computed from this one and ``inputs``, labeled with all of them."""
