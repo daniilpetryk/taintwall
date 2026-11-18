@@ -29,7 +29,8 @@ attacker-controlled (chat handles, tool names from MCP servers, tool output):
   data came from, but it cannot create trusted provenance out of nothing.
 
 Modules: ``source`` (kinds and sources), ``label`` (labels, joins, storage),
-``value`` (``Labeled`` values) and ``errors``.
+``immutability`` (which values may carry a label), ``value`` (``Labeled``
+values) and ``errors``.
 """
 
 from taintwall.core.labels.errors import (
@@ -46,6 +47,7 @@ from taintwall.core.labels.errors import (
     UnmintedSourceError,
     ValueTooDeepError,
 )
+from taintwall.core.labels.immutability import MAX_VALUE_DEPTH
 from taintwall.core.labels.label import (
     LABEL_FORMAT_VERSION,
     MAX_SOURCES_PER_KIND,
@@ -54,7 +56,7 @@ from taintwall.core.labels.label import (
     join_all,
 )
 from taintwall.core.labels.source import MAX_NAME_LENGTH, TRUSTED_KINDS, Source, SourceKind
-from taintwall.core.labels.value import MAX_VALUE_DEPTH, Labeled
+from taintwall.core.labels.value import Labeled
 
 __all__ = [
     "LABEL_FORMAT_VERSION",

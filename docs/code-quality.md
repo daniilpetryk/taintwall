@@ -65,7 +65,7 @@ taintwall.core.interpreter
   runtime                         Interpreter: one requester, one set of tools
   evaluator                       one run's state; dispatches each syntax node
   reads | literals | operations   one handler per syntax node
-  context                         the protocol handlers depend on
+  context                         the protocols handlers depend on (Context, ToolCalls)
   tools                           tool registry, source stamp, failure isolation
   builtins                        len, abs, min, max, sum
   operators                       type rules, values and labels of operators
@@ -74,15 +74,17 @@ taintwall.core.interpreter
   arguments | location            call arguments; error locations
 
 taintwall.core.labels
-  value                           Labeled values, immutability, typed equality
-  label                           Label, Readers, join, storage format
+  value                           Labeled values, typed equality
+  label | immutability            Label, Readers, join, storage | which values may carry a label
   source                          SourceKind, Source, the mint capability
   errors                          typed errors with bounded previews
 ```
 
-Handlers depend on the `Context` protocol rather than on the evaluator
-(dependency inversion). That is what lets the evaluator import them for its
-dispatch table without a cycle.
+Handlers depend on the `Context` and `ToolCalls` protocols rather than on
+the evaluator or the toolbox (dependency inversion). That is what lets the
+evaluator import them for its dispatch table without a cycle. In the same
+way `immutability` takes the already-checked type as a parameter instead of
+importing `Labeled`.
 
 ## Contract tests
 

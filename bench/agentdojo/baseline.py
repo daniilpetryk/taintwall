@@ -41,9 +41,11 @@ from agentdojo.benchmark import (
 from agentdojo.logging import OutputLogger
 from agentdojo.models import MODEL_NAMES
 from agentdojo.task_suite.load_suites import get_suite
-from bench_common.metering import MeteredClient, openrouter_client, prose_name, stop_reason
+from bench_common.metering import MeteredClient, openrouter_client
+from bench_common.naming import prose_name
 from bench_common.results import export
 from bench_common.stats import rate_summary
+from bench_common.stopping import stop_reason
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent

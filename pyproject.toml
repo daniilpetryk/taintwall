@@ -244,10 +244,10 @@ layers = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "Label layers: values > labels > sources > errors"
+name = "Label layers: values > labels, immutability > sources > errors"
 type = "layers"
 containers = ["taintwall.core.labels"]
-layers = ["value", "label", "source", "errors"]
+layers = ["value", "label | immutability", "source", "errors"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"

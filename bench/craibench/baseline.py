@@ -41,8 +41,10 @@ from agentdojo.agent_pipeline.agent_pipeline import load_system_message
 from agentdojo.attacks import base_attacks
 from agentdojo.logging import OutputLogger
 from agentdojo.task_suite.load_suites import get_suite
-from bench_common.metering import MeteredClient, openrouter_client, prose_name, stop_reason
+from bench_common.metering import MeteredClient, openrouter_client
+from bench_common.naming import prose_name
 from bench_common.results import export
+from bench_common.stopping import stop_reason
 from craibench_runner.execution import Run, run_security, run_utility
 from craibench_runner.summary import merged
 

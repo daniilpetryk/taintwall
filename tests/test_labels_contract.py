@@ -198,6 +198,15 @@ def test_equality_keeps_types_apart_inside_tuples(one: object, other: object) ->
     assert Labeled(one, label) == Labeled(one, label)
 
 
+def test_siblings_of_a_nested_labeled_value_are_still_checked() -> None:
+    # A nested Labeled value is skipped as already checked; the scan must go
+    # on with the other elements, whatever order they are visited in.
+    inner = Labeled(1, Label.of(TOOL))
+    for value in (([1], inner), (inner, [1])):
+        with pytest.raises(MutableValueError):
+            Labeled(value, Label.of(TOOL))
+
+
 def test_dataclass_classes_are_not_values() -> None:
     Labeled(_Frozen(1), Label.of(TOOL))
     with pytest.raises(MutableValueError):

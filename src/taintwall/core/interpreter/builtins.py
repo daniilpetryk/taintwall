@@ -15,7 +15,8 @@ from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import ATOMS, Result, apply
+from taintwall.core.interpreter.operators import ATOMS, apply
+from taintwall.core.interpreter.trace import Result
 from taintwall.core.interpreter.walk import deep_label, plain
 from taintwall.core.labels import Labeled, join_all
 

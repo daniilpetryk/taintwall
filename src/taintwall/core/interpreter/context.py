@@ -10,11 +10,22 @@ without an import cycle, and each handler sees only what it needs.
 import ast
 from typing import Protocol
 
+from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.limits import Guard
-from taintwall.core.interpreter.operators import Result
-from taintwall.core.interpreter.tools import Toolbox
-from taintwall.core.interpreter.trace import Origin, Ref
+from taintwall.core.interpreter.trace import Origin, Ref, Result
 from taintwall.core.labels import Label
+
+
+class ToolCalls(Protocol):
+    """What a handler needs from the tools: whether a name is one, and a call."""
+
+    def __contains__(self, name: object) -> bool:
+        """Whether ``name`` is a tool of this run."""
+        ...
+
+    def call(self, node: ast.Call, name: str, arguments: Arguments, guard: Guard) -> Result:
+        """Call tool ``name`` and label its result."""
+        ...
 
 
 class Context(Protocol):
@@ -31,7 +42,7 @@ class Context(Protocol):
         ...
 
     @property
-    def tools(self) -> Toolbox:
+    def tools(self) -> ToolCalls:
         """Tools the plan may call."""
         ...
 
