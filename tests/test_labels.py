@@ -6,7 +6,9 @@ import collections
 import dataclasses
 import datetime as dt
 import enum
+from decimal import Decimal
 from typing import NamedTuple, override
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -32,6 +34,7 @@ from taintwall.core.labels import (
     MAX_NAME_LENGTH,
     MAX_SOURCES_PER_KIND,
     MAX_VALUE_DEPTH,
+    NonFiniteNumberError,
     UnmintedSourceError,
 )
 from taintwall.core.mint import Mint
@@ -569,3 +572,63 @@ class TestThirdReview:
         assert Labeled(1, label) == one
         assert hash(Labeled(1, label)) == hash(one)
         assert one != 1
+
+
+class TestFourthReview:
+    def test_nested_values_keep_types_apart(self) -> None:
+        label = Label.of(MINT.plan())
+        assert Labeled((1,), label) != Labeled((True,), label)
+        assert Labeled((1,), label) != Labeled((1.0,), label)
+        assert Labeled(frozenset({1}), label) != Labeled(frozenset({1.0}), label)
+        assert Labeled(FrozenRecord(1, "x"), label) != Labeled(FrozenRecord(True, "x"), label)  # noqa: FBT003
+        assert Labeled((1, (2,)), label) == Labeled((1, (2,)), label)
+        assert hash(Labeled((1, (2,)), label)) == hash(Labeled((1, (2,)), label))
+
+    def test_nested_labeled_values_compare_by_their_own_key(self) -> None:
+        label = Label.of(MINT.plan())
+        inner_int = Labeled(1, label)
+        inner_bool = Labeled(value=True, label=label)
+        assert Labeled((inner_int,), label) != Labeled((inner_bool,), label)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+            complex(float("nan"), 0),
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("Infinity"),
+            (1, float("nan")),
+        ],
+    )
+    def test_non_finite_numbers_are_rejected(self, value: object) -> None:
+        # NaN > limit is False: a NaN amount would slip past "amount > limit".
+        with pytest.raises(NonFiniteNumberError):
+            Labeled(value, Label.of(MINT.plan()))
+
+    def test_finite_numbers_are_accepted(self) -> None:
+        for value in (0.5, Decimal("1.25"), complex(1, 2)):
+            assert Labeled(value, Label.of(MINT.plan())).value == value
+
+    def test_enum_members_with_extra_state_are_rejected(self) -> None:
+        class Cached(enum.Enum):
+            A = 1
+
+            def __init__(self, _value: int) -> None:
+                self.cache: list[str] = []
+
+        with pytest.raises(MutableValueError):
+            Labeled(Cached.A, Label.of(MINT.plan()))
+
+    def test_plain_enums_and_flags_are_accepted(self) -> None:
+        class Color(enum.IntFlag):
+            RED = 1
+
+        for member in (Readers.USER, SourceKind.TOOL, Color.RED):
+            assert Labeled(member, Label.of(MINT.plan())).value is member
+
+    def test_zoneinfo_datetimes_are_accepted(self) -> None:
+        stamp = dt.datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        assert Labeled(stamp, Label.of(MINT.plan())).value == stamp

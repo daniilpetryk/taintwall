@@ -4,9 +4,15 @@
 
 Sources of ``TRUSTED_KINDS`` (plan literals, the owner, address-book and
 verified-list entries, per-call confirmations) mean "a policy may trust this".
-Creating one is a privileged act, so it goes through this module, and the
-import contracts in ``pyproject.toml`` forbid the integration layers
-(``taintwall.llm``, ``taintwall.tools``, ``taintwall.web3``) from importing it.
+Creating one is a privileged act, so it goes through this module. Two checks
+enforce that in CI:
+
+* a ``protected`` import contract (``pyproject.toml``): only ``taintwall.core``,
+  ``taintwall.policy`` and ``taintwall.store`` may import this module, so new
+  subpackages are excluded by default;
+* an architecture test (``tests/test_architecture.py``): the capability token
+  and the ``_mint`` argument may appear only in ``labels.py`` and here, because
+  importing the token straight from ``labels`` is invisible to import contracts.
 
 This guards against accidental laundering by our own code, such as a tool
 adapter labeling its output as a plan literal. It is not a sandbox: the threat

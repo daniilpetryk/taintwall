@@ -165,10 +165,12 @@ source_modules = ["taintwall.core"]
 forbidden_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
 
 [[tool.importlinter.contracts]]
+# Allowlist, not denylist: a new subpackage cannot import the mint by default.
+# The capability token itself is guarded by tests/test_architecture.py.
 name = "Only core, policy and store can mint trusted provenance"
-type = "forbidden"
-source_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
-forbidden_modules = ["taintwall.core.mint"]
+type = "protected"
+protected_modules = ["taintwall.core.mint"]
+allowed_importers = ["taintwall.core", "taintwall.policy", "taintwall.store"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
