@@ -17,7 +17,7 @@ from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import Result
+from taintwall.core.interpreter.trace import Result
 from taintwall.core.interpreter.walk import deep_label
 from taintwall.core.labels import Label, Labeled, Source, join_all
 

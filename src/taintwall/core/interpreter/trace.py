@@ -44,6 +44,10 @@ class TraceEvent:
     label: Label
 
 
+type Result = tuple[object, Label]
+"""A computed value and its label, before it becomes a ``Labeled`` value."""
+
+
 class Ref(NamedTuple):
     """A value inside a run, with its trace id."""
 

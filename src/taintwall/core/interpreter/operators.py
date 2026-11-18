@@ -20,8 +20,9 @@ from typing import Final
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
+from taintwall.core.interpreter.trace import Result
 from taintwall.core.interpreter.walk import deep_label, plain
-from taintwall.core.labels import Label, Labeled, join_all
+from taintwall.core.labels import Labeled, join_all
 
 NUMBERS: Final = frozenset({int, float})
 """Types arithmetic accepts (not ``bool``)."""
@@ -51,9 +52,6 @@ _COMPARE: Final[Mapping[type[ast.cmpop], Callable[..., object]]] = {
     ast.In: lambda left, right: operator.contains(right, left),
     ast.NotIn: lambda left, right: not operator.contains(right, left),
 }
-
-type Result = tuple[object, Label]
-"""A computed value and its label."""
 
 
 def apply(node: ast.expr, function: Callable[..., object], *args: object) -> object:

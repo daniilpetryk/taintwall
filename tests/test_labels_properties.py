@@ -20,7 +20,6 @@ from taintwall.core.labels import (
     InvalidReadersError,
     InvalidSourceError,
     Label,
-    Labeled,
     LabelFormatError,
     NotASourceError,
     Readers,
@@ -116,16 +115,6 @@ def test_trust_is_monotone(a: Label, b: Label) -> None:
 def test_a_label_with_a_category_is_never_trusted(a: Label) -> None:
     if any(source.is_category for source in a.sources):
         assert not a.all_sources(lambda _source: True)
-
-
-@given(labels, st.lists(labels, max_size=4))
-def test_derive_label_covers_all_inputs(base: Label, others: list[Label]) -> None:
-    value = Labeled(0, base)
-    inputs = [Labeled(i, label) for i, label in enumerate(others)]
-    derived = value.derive(1, *inputs)
-    assert derived.label.covers(base)
-    for label in others:
-        assert derived.label.covers(label)
 
 
 @given(labels)

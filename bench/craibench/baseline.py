@@ -41,8 +41,10 @@ from agentdojo.agent_pipeline.agent_pipeline import load_system_message
 from agentdojo.attacks import base_attacks
 from agentdojo.logging import OutputLogger
 from agentdojo.task_suite.load_suites import get_suite
-from bench_common.metering import MeteredClient, openrouter_client, prose_name, stop_reason
+from bench_common.metering import MeteredClient, openrouter_client
+from bench_common.naming import prose_name
 from bench_common.results import export
+from bench_common.stopping import stop_reason
 from craibench_runner.execution import Run, run_security, run_utility
 from craibench_runner.summary import merged
 
@@ -55,6 +57,8 @@ SUITES = ("chain", "dao_nft", "crypto_trading")
 
 def build_pipeline(client: MeteredClient, model: str) -> AgentPipeline:
     """The fork's undefended pipeline around ``model``."""
+    # Haiku 5.5 ignores temperature (OpenRouter drops it, see docs/design.md);
+    # it stays so requests, and therefore cache keys, match the baseline runs.
     llm = OpenAILLM(client, model, temperature=0.0)
     tools_loop = ToolsExecutionLoop([ToolsExecutor(), llm])
     system = SystemMessage(load_system_message(None))

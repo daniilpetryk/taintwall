@@ -7,14 +7,10 @@ from typing import Any, override
 
 import openai
 import pytest
-from bench_common.metering import (
-    CostCeilingError,
-    MeteredClient,
-    ProviderError,
-    prose_name,
-    stop_reason,
-)
+from bench_common.metering import MeteredClient
+from bench_common.naming import prose_name
 from bench_common.stats import pairs_of, rate_summary, sample, wilson
+from bench_common.stopping import CostCeilingError, ProviderError, stop_reason
 from openai.types.chat import ChatCompletion
 
 USAGE = {

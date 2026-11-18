@@ -5,8 +5,11 @@ taintwall runtime will be compared on: same tasks, same attacks, same model.
 Computed once and reused (budget rule); reruns hit the on-disk response cache
 and cost nothing. Every rate has a 95% Wilson interval in brackets.
 
-Model: `anthropic/claude-haiku-5.5` through OpenRouter, temperature 0, the
-benchmark's default system message and tool loop. Run 2026-11-18.
+Model: `anthropic/claude-haiku-5.5` through OpenRouter, the benchmark's
+default system message and tool loop. Run 2026-11-18. The runners pass
+`temperature=0`, but no Haiku 5.5 provider supports it and OpenRouter drops
+it silently, so runs are not deterministic; the committed results and the
+response cache are what make the baseline reproducible.
 
 ## Summary
 

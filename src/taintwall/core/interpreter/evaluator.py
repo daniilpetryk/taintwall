@@ -20,9 +20,8 @@ from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.context import Context
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import Result
 from taintwall.core.interpreter.tools import Toolbox
-from taintwall.core.interpreter.trace import Origin, Ref, Trace, TraceEvent
+from taintwall.core.interpreter.trace import Origin, Ref, Result, Trace, TraceEvent
 from taintwall.core.labels import (
     Label,
     Labeled,

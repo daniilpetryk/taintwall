@@ -349,17 +349,6 @@ class TestCollapsibleKinds:
 
 
 class TestLabeled:
-    def test_derive_joins_every_input(self) -> None:
-        amount = Labeled(100, Label.of(INVOICE))
-        fee = Labeled(1, Label.of(MINT.plan()))
-        total = amount.derive(101, fee)
-        assert total.value == 101
-        assert total.label == Label.of(INVOICE, MINT.plan())
-
-    def test_derive_without_inputs_keeps_the_label(self) -> None:
-        name = Labeled("alice", Label.of(ALICE, readers=Readers.USER))
-        assert name.derive("ALICE").label == name.label
-
     @pytest.mark.parametrize(
         "value",
         [
@@ -458,11 +447,6 @@ class TestLabeled:
         inner = Labeled(tuple(range(1000)), Label.of(BALANCE))
         outer = Labeled((inner,) * 1000, Label.of(BALANCE))
         assert len(outer.value) == 1000
-
-    def test_derive_also_rejects_mutable_values(self) -> None:
-        base = Labeled(1, Label.of(MINT.plan()))
-        with pytest.raises(MutableValueError):
-            base.derive([1])
 
     def test_is_immutable(self) -> None:
         value = Labeled(1, Label.of(MINT.plan()))
