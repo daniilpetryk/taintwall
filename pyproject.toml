@@ -310,6 +310,8 @@ allowed_internal_imports = [
 extend-ignore-re = ["\\b[A-Z]{1,4}[0-9]{3,4}\\b"]
 
 [tool.typos.default.extend-words]
+# Python package names
+certifi = "certifi"
 # golangci-lint linter names
 decorder = "decorder"
 importas = "importas"

@@ -53,6 +53,16 @@ Each pair can run through two channels (prompt injection in tool output, and CrA
   `<model>/<system message>/<suite>/…` (memory runs with a
   `_memory_injection` suffix) but looked up under `<model>/<suite>/…`. Every
   rerun repeats every pair; our runner reads results itself.
+- Its lock file pins 17 packages with known vulnerabilities (106 Dependabot
+  alerts: aiohttp, urllib3, h11, anyio, certifi, langchain-core, deepdiff,
+  protobuf, fsspec). They are released from the constraints and resolve to
+  patched versions; langchain 1.x no longer pulls aiohttp at all, and
+  pydantic moves 2.7.3 → 2.9.2. The fork's offline tests and a live task
+  pass on them. The SDKs that broke it (openai, cohere, openapi-pydantic)
+  stay at its versions. deepdiff, the one released package that scores
+  tasks, is used only by the workspace suite, so the chain, dao_nft and
+  crypto_trading scores are unaffected; the baseline in `baselines.md` was
+  computed on the old lock.
 - Like AgentDojo, it scores a context-length or server error as
   `security=True`; our client turns provider errors into an error neither
   catches.
