@@ -83,6 +83,8 @@ def test_accepts_the_language(source: str) -> None:
         "raise X",
         "x = f(*args)",
         "x = f(**kwargs)",
+        "x = f(_internal=1)",
+        "x = f(__class__=1)",
         "x = (y := 1)",
         "x = {1: 2}",
         "x = {a: 2}",
@@ -112,6 +114,13 @@ def test_rejects_oversized_plans_before_parsing() -> None:
 def test_rejects_deep_nesting() -> None:
     deep = "x = " + "-" * (MAX_PLAN_DEPTH + 5) + "1"
     assert code_of(deep) is PlanErrorCode.TOO_DEEP
+
+
+@pytest.mark.parametrize("op", ["-", "not ", "~"])
+def test_parser_exhaustion_is_typed(op: str) -> None:
+    # Review round 1: CPython's parser raised a raw MemoryError here.
+    source = "x = " + op * ((MAX_PLAN_CHARS - 10) // len(op)) + "1"
+    assert code_of(source) in {PlanErrorCode.TOO_DEEP, PlanErrorCode.UNSUPPORTED}
 
 
 def test_accepts_moderate_nesting() -> None:

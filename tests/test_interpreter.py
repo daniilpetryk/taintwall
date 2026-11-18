@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Interpreter: label propagation for explicit flows, limits, typed errors."""
 
+import tracemalloc
 from collections.abc import Mapping
 
 import pytest
 
-from taintwall.core import Label, Labeled, Source, SourceKind
+from taintwall.core import InvalidSourceError, Label, Labeled, Source, SourceKind
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import (
     EventKind,
@@ -198,9 +199,20 @@ class TestExplicitFlows:
         x = var("ts = tokens()\nx = len((1,) + ts)")
         assert BALANCE in x.label.sources
 
-    def test_tuple_repeat_reads_every_element(self) -> None:
-        x = var("b = get_balance('a')\nts = (b,)\nx = ts * 2")
+    def test_tuple_repeat_keeps_element_labels(self) -> None:
+        x = var("b = get_balance('a')\nts = (b,)\nx = 2 * ts")
+        assert len(x.value) == 2  # type: ignore[arg-type]
+        assert all(BALANCE in item.label.sources for item in x.value)  # type: ignore[attr-defined]
+        assert BALANCE not in x.label.sources
+
+    def test_repeat_count_label_reaches_the_container(self) -> None:
+        x = var("n = get_balance('a')\nx = len(('a',) * n)")
+        assert x.value == 100
         assert BALANCE in x.label.sources
+
+    def test_records_can_be_repeated(self) -> None:
+        x = var("r = {'a': 1}\nx = (r,) * 2")
+        assert len(x.value) == 2  # type: ignore[arg-type]
 
     def test_record_build(self) -> None:
         x = var("b = get_balance('a')\nx = {'balance': b, 'note': 'hi'}\ny = x.balance", "y")
@@ -211,9 +223,10 @@ class TestExplicitFlows:
         assert x.value == f"token {SECRET}"
         assert META in x.label.sources
 
-    def test_format_of_a_record_reads_its_fields(self) -> None:
-        x = var("info = token_info('x')\nx = f'{info}'")
-        assert META in x.label.sources
+    def test_format_accepts_atoms_only(self) -> None:
+        assert error("info = token_info('x')\nx = f'{info}'").code is PlanErrorCode.TYPE_MISMATCH
+        assert error("x = f'{(1, 2)}'").code is PlanErrorCode.TYPE_MISMATCH
+        assert var("x = f'{1}{True}{None}{1.5}'").value == "1TrueNone1.5"
 
     def test_expression_statement_runs_the_tool(self) -> None:
         counter = Counter()
@@ -224,6 +237,31 @@ class TestExplicitFlows:
     def test_unary(self) -> None:
         assert var("b = get_balance('a')\nx = -b").value == -100
         assert var("x = not True").value is False
+
+
+class TestToolStamp:
+    def test_a_tool_cannot_launder_a_trusted_label(self) -> None:
+        # Review round 1: a tool returned attacker data under its argument's
+        # owner label; the interpreter now stamps the tool's own source.
+        def launder(arg: Labeled[object]) -> Labeled[object]:
+            return Labeled("0xAttacker", arg.label)
+
+        x = var("x = launder('a')", extra={"launder": launder})
+        assert Source.tool("launder") in x.label.sources
+        assert not x.label.only_from({SourceKind.PLAN, SourceKind.OWNER})
+
+    def test_tool_names_must_be_valid_sources(self) -> None:
+        with pytest.raises(InvalidSourceError):
+            Interpreter({"bad name": get_balance}, requester=OWNER, mint=MINT)
+
+    def test_system_exit_from_a_tool_is_typed(self) -> None:
+        def leave() -> Labeled[object]:
+            raise SystemExit(SECRET)
+
+        with pytest.raises(PlanError) as err:
+            run("x = leave()", extra={"leave": leave})
+        assert err.value.code is PlanErrorCode.TOOL_FAILED
+        assert err.value.__context__ is None
 
 
 class TestShortCircuit:
@@ -256,6 +294,14 @@ class TestErrors:
             ("i = read_file('a')\nx = i.missing", PlanErrorCode.MISSING_FIELD),
             ("x = (5).real", PlanErrorCode.TYPE_MISMATCH),
             ("x = 'a' - 1", PlanErrorCode.TYPE_MISMATCH),
+            ("x = '%d' % 1", PlanErrorCode.TYPE_MISMATCH),
+            ("x = 'a' + 1", PlanErrorCode.TYPE_MISMATCH),
+            ("x = (1,) + 'a'", PlanErrorCode.TYPE_MISMATCH),
+            ("x = True + 1", PlanErrorCode.TYPE_MISMATCH),
+            ("x = 'a' * 1.5", PlanErrorCode.TYPE_MISMATCH),
+            ("r = {'a': 1}\nx = max(((r,),))", PlanErrorCode.TYPE_MISMATCH),
+            ("x = min((1, 2), (3,))", PlanErrorCode.TYPE_MISMATCH),
+            ("x = sum((1,), 2)", PlanErrorCode.BAD_ARGUMENTS),
             ("x = (1, 2)[5]", PlanErrorCode.INDEX_OUT_OF_RANGE),
             ("x = (1, 2)['a']", PlanErrorCode.TYPE_MISMATCH),
             ("x = 1 / 0", PlanErrorCode.DIVISION_BY_ZERO),
@@ -302,6 +348,33 @@ class TestLimits:
     )
     def test_value_limits(self, source: str) -> None:
         assert error(source).code is PlanErrorCode.VALUE_TOO_LARGE
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "s = 'a' * 99999\nx = s * 1000000000",
+            "t = (1,) * 9999\nx = t * 1000000000",
+            "s = 'a' * 99999\nx = s + s",
+        ],
+    )
+    def test_sizes_are_checked_before_building(self, source: str) -> None:
+        # Review round 1: these allocated gigabytes before the size check.
+        assert error(source).code is PlanErrorCode.VALUE_TOO_LARGE
+
+    def test_format_stops_before_joining_everything(self) -> None:
+        # 200 parts of 99 999 characters would build ~20 MB before a final
+        # check; the running length stops at the second part.
+        source = "s = 'a' * 99999\nx = f'" + "{s}" * 200 + "'"
+        tracemalloc.start()
+        try:
+            assert error(source).code is PlanErrorCode.VALUE_TOO_LARGE
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert peak < 5_000_000
+
+    def test_negative_repeat_is_empty(self) -> None:
+        assert var("x = 'ab' * -3").value == ""
 
     def test_format_is_bounded(self) -> None:
         source = "a = 'x' * 60000\nx = f'{a}{a}'"

@@ -9,13 +9,18 @@ Every value is a ``Labeled`` value. Rules for explicit flows (stage 1, PR 2):
   that stranger as a source (contribution C);
 * an operation's result is labeled with everything it read: its operands and,
   when it reads the contents of a sequence or record, every element;
-* a tool result is labeled with the tool's own label joined with the labels
-  of its arguments: if attacker data chose which file to read, the content
-  depends on the attacker too;
+* a tool result is labeled with the tool's source (stamped by the
+  interpreter, never taken on the tool's word), the label the tool returned
+  and the labels of its arguments: if attacker data chose which file to read,
+  the content depends on the attacker too;
 * reading a field or an element joins the field's label with the container's
   (and the index's) label; ``len`` reads only the container's label;
 * ``and``/``or`` short-circuit like Python, and the result carries the label
-  of every operand that was evaluated, since the left one chose the outcome.
+  of every operand that was evaluated, since the left one chose the outcome;
+* arithmetic works on numbers only, plus ``+`` for two strings or two tuples
+  and ``*`` for a string or tuple and an integer; result sizes are checked
+  before anything is built, so a plan cannot allocate past its limits.
+  f-strings interpolate atoms only (strings, numbers, booleans, ``None``).
 
 The interpreter records a trace of which value was derived from which, for
 the provenance viewer. Failures raise ``PlanError`` with a code and the plan
@@ -148,7 +153,17 @@ _COMPARE: Final[Mapping[type[ast.cmpop], Callable[..., object]]] = {
     ast.In: lambda left, right: operator.contains(right, left),
     ast.NotIn: lambda left, right: not operator.contains(right, left),
 }
-BUILTINS: Final = frozenset({"len", "abs", "min", "max", "sum"})
+_NUMBERS: Final = frozenset({int, float})
+_ATOMS: Final = frozenset({str, int, float, bool, type(None)})
+_FUNCTIONS: Final[Mapping[str, tuple[Callable[..., object], int | None]]] = {
+    "abs": (abs, 1),
+    "min": (min, None),
+    "max": (max, None),
+    "sum": (sum, 1),
+}
+"""Builtins other than ``len``, with their fixed arity (``None``: any)."""
+
+BUILTINS: Final = frozenset({"len", *_FUNCTIONS})
 """Functions every plan can call besides tools."""
 
 _REQUESTER_KINDS: Final = frozenset({SourceKind.OWNER, SourceKind.PRINCIPAL})
@@ -170,7 +185,8 @@ class Interpreter:
         clashes = set(tools) & BUILTINS
         if clashes:
             raise ToolNameClashError(clashes)
-        self._tools = dict(tools)
+        # Validates tool names as sources up front (InvalidSourceError).
+        self._tools = {name: (tool, Label.of(Source.tool(name))) for name, tool in tools.items()}
         self._literal_label = Label.of(mint.plan(), requester)
         self._limits = limits or Limits()
 
@@ -226,7 +242,9 @@ def _line(node: ast.AST) -> int:
 class _Run:
     """State of one plan run: variables, trace and step count."""
 
-    def __init__(self, tools: Mapping[str, Tool], literal_label: Label, limits: Limits) -> None:
+    def __init__(
+        self, tools: Mapping[str, tuple[Tool, Label]], literal_label: Label, limits: Limits
+    ) -> None:
         self._tools = tools
         self._literal_label = literal_label
         self._limits = limits
@@ -274,17 +292,46 @@ class _Run:
         assert isinstance(node, ast.BinOp)  # noqa: S101 - dispatch guarantees the type
         left, right = self.expr(node.left), self.expr(node.right)
         op_name = type(node.op).__name__
-        if type(left[0].value) is tuple and type(right[0].value) is tuple and op_name == "Add":
-            # Concatenation keeps per-element labels; the result's own label
-            # is the two sequences' labels.
-            value: object = left[0].value + right[0].value
-            label = left[0].label.join(right[0].label)
-        else:
-            value = self._apply(
-                node, _BINARY[type(node.op)], _plain(left[0].value), _plain(right[0].value)
+        a, b = left[0].value, right[0].value
+        inputs = (left[1], right[1])
+        if type(a) in _NUMBERS and type(b) in _NUMBERS:
+            value = self._apply(node, _BINARY[type(node.op)], a, b)
+            return self._new(
+                value,
+                left[0].label.join(right[0].label),
+                EventKind.OPERATION,
+                node,
+                op_name,
+                inputs,
             )
-            label = _deep_label(left).join(_deep_label(right))
-        return self._new(value, label, EventKind.OPERATION, node, op_name, (left[1], right[1]))
+        if isinstance(node.op, ast.Add) and type(a) is type(b) and type(a) in {str, tuple}:
+            # Concatenation keeps per-element labels; the result's own label
+            # is the two containers' labels. At most twice the size limit, so
+            # the check after building is enough.
+            value = a + b  # type: ignore[operator]
+            return self._new(
+                value,
+                left[0].label.join(right[0].label),
+                EventKind.OPERATION,
+                node,
+                op_name,
+                inputs,
+            )
+        if isinstance(node.op, ast.Mult):
+            sequence, count = (a, b) if type(b) is int else (b, a)
+            if type(count) is int and type(sequence) in {str, tuple}:
+                self._check_length(len(sequence) * max(count, 0), node)  # type: ignore[arg-type]
+                # Repetition keeps per-element labels, like concatenation.
+                value = sequence * count  # type: ignore[operator]
+                return self._new(
+                    value,
+                    left[0].label.join(right[0].label),
+                    EventKind.OPERATION,
+                    node,
+                    op_name,
+                    inputs,
+                )
+        raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), op_name)
 
     def _unary(self, node: ast.expr) -> _Ref:
         assert isinstance(node, ast.UnaryOp)  # noqa: S101 - dispatch guarantees the type
@@ -330,19 +377,22 @@ class _Run:
         kwargs = {kw.arg: self.expr(kw.value) for kw in node.keywords if kw.arg is not None}
         if name in BUILTINS:
             return self._builtin(node, name, args, kwargs)
-        tool = self._tools.get(name)
-        if tool is None:
+        entry = self._tools.get(name)
+        if entry is None:
             raise PlanError(PlanErrorCode.UNKNOWN_TOOL, _line(node), name)
+        tool, stamp = entry
         result: object = None
         # Any tool failure becomes one typed code, raised below outside the
         # handler: the tool's exception text may carry an injection and must
         # not ride along as ``__cause__`` or ``__context__`` (decision Q3).
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(Exception, SystemExit):
             result = tool(*(ref[0] for ref in args), **{key: ref[0] for key, ref in kwargs.items()})
         if not isinstance(result, Labeled):
             raise PlanError(PlanErrorCode.TOOL_FAILED, _line(node), name)
         all_args = [*args, *kwargs.values()]
-        label = join_all(result.label, *(_deep_label(ref) for ref in all_args))
+        # The tool's source is stamped here: a tool may return any label,
+        # including a trusted one it received, and must not launder data.
+        label = join_all(stamp, result.label, *(_deep_label(ref) for ref in all_args))
         inputs = tuple(ref[1] for ref in all_args)
         return self._new(result.value, label, EventKind.CALL, node, name, inputs)
 
@@ -358,16 +408,13 @@ class _Run:
             # The length depends on the container, not on what is inside it.
             value = self._apply(node, len, args[0][0].value)
             return self._new(value, args[0][0].label, EventKind.OPERATION, node, name, inputs)
-        if name == "abs" and len(args) != 1:
+        function, arity = _FUNCTIONS[name]
+        if arity is not None and len(args) != arity:
             raise PlanError(PlanErrorCode.BAD_ARGUMENTS, _line(node), name)
-        functions: dict[str, Callable[..., object]] = {
-            "abs": abs,
-            "min": min,
-            "max": max,
-            "sum": sum,
-        }
-        function = functions[name]
         value = self._apply(node, function, *(_plain(ref[0].value) for ref in args))
+        if type(value) not in _ATOMS:
+            # min/max over sequences of containers: results must be atoms.
+            raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), name)
         label = join_all(*(_deep_label(ref) for ref in args))
         return self._new(value, label, EventKind.OPERATION, node, name, inputs)
 
@@ -427,14 +474,19 @@ class _Run:
         assert isinstance(node, ast.JoinedStr)  # noqa: S101 - dispatch guarantees the type
         parts: list[str] = []
         refs: list[_Ref] = []
+        length = 0
         for part in node.values:
             if isinstance(part, ast.FormattedValue):
                 ref = self.expr(part.value)
+                if type(ref[0].value) not in _ATOMS:
+                    raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(part), "format")
                 refs.append(ref)
-                parts.append(str(_plain(ref[0].value)))
-                self._check_size("".join(parts), part)
-            elif isinstance(part, ast.Constant):
-                parts.append(str(part.value))
+                text = str(ref[0].value)
+            else:
+                text = str(getattr(part, "value", ""))
+            length += len(text)
+            self._check_length(length, part)
+            parts.append(text)
         label = join_all(self._literal_label, *(_deep_label(ref) for ref in refs))
         inputs = tuple(ref[1] for ref in refs)
         return self._new("".join(parts), label, EventKind.OPERATION, node, "format", inputs)
@@ -450,6 +502,11 @@ class _Run:
             raise PlanError(PlanErrorCode.VALUE_TOO_LARGE, _line(node)) from None
         except (TypeError, ValueError):
             raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node)) from None
+
+    def _check_length(self, length: int, node: ast.AST) -> None:
+        """Reject a string or tuple length before the value is built."""
+        if length > max(self._limits.max_string, self._limits.max_items):
+            raise PlanError(PlanErrorCode.VALUE_TOO_LARGE, _line(node))
 
     def _check_size(self, value: object, node: ast.AST) -> None:
         limits = self._limits

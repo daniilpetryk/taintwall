@@ -92,6 +92,9 @@ def parse_plan(source: str) -> Plan:
     except (SyntaxError, ValueError) as err:
         line = err.lineno if isinstance(err, SyntaxError) else None
         raise PlanError(PlanErrorCode.SYNTAX, line) from None
+    except (MemoryError, RecursionError):
+        # CPython's parser gives up on very deep nesting before our check.
+        raise PlanError(PlanErrorCode.TOO_DEEP) from None
     _check_depth(tree)
     for node in ast.walk(tree):
         _check_node(node)
@@ -150,6 +153,8 @@ def _check_call(node: ast.AST) -> None:
         raise _unsupported(node, "star argument")
     if any(keyword.arg is None for keyword in node.keywords):
         raise _unsupported(node, "keyword unpacking")
+    if any(keyword.arg.startswith("_") for keyword in node.keywords if keyword.arg):
+        raise _unsupported(node, "private name")
 
 
 def _check_dict(node: ast.AST) -> None:
