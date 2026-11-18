@@ -14,10 +14,13 @@ from hypothesis import strategies as st
 
 from taintwall.core import (
     EmptyLabelError,
+    InvalidKindError,
+    InvalidReadersError,
     InvalidSourceError,
     Label,
     Labeled,
     LabelFormatError,
+    NotASourceError,
     Readers,
     Source,
     SourceKind,
@@ -40,6 +43,7 @@ labels = st.builds(
     sources=st.frozensets(sources, min_size=1, max_size=3 * MAX_SOURCES_PER_KIND),
     readers=readers,
 )
+COLLAPSIBLE = {SourceKind.TOOL, SourceKind.PRINCIPAL, SourceKind.SYSTEM}
 TRUSTED_KINDS = {SourceKind.PLAN, SourceKind.OWNER, SourceKind.ADDRESS_BOOK}
 
 json_values = st.recursive(
@@ -86,10 +90,11 @@ def test_normalization_is_stable(a: Label) -> None:
 
 
 @given(labels)
-def test_no_kind_exceeds_the_limit(a: Label) -> None:
+def test_no_collapsible_kind_exceeds_the_limit(a: Label) -> None:
     for kind in SourceKind:
         precise = [s for s in a.sources if s.kind is kind and not s.is_category]
-        assert len(precise) <= MAX_SOURCES_PER_KIND
+        if kind in COLLAPSIBLE:
+            assert len(precise) <= MAX_SOURCES_PER_KIND
         if any(s.kind is kind and s.is_category for s in a.sources):
             assert not precise
 
@@ -139,3 +144,26 @@ def test_no_name_can_become_owner_or_category(kind: SourceKind, name: str) -> No
         return
     assert source.kind is not SourceKind.OWNER
     assert not source.is_category
+
+
+# Adversarial constructor input: anything that is not the right type must be
+# rejected with one of our errors, never stored and never a crash elsewhere.
+junk = st.one_of(
+    st.text(max_size=12), st.integers(), st.none(), st.lists(st.text(max_size=4), max_size=3)
+)
+
+
+@given(junk, st.one_of(junk, st.sampled_from(NAMES)))
+def test_wrongly_typed_sources_are_rejected(kind: object, name: object) -> None:
+    with contextlib.suppress(InvalidKindError, InvalidSourceError):
+        source = Source(kind, name)  # type: ignore[arg-type]
+        assert isinstance(source.kind, SourceKind)
+
+
+@given(st.one_of(junk, st.sets(sources, max_size=4)), junk)
+def test_wrongly_typed_labels_are_rejected(raw_sources: object, raw_readers: object) -> None:
+    errors = (EmptyLabelError, NotASourceError, InvalidReadersError, TypeError)
+    with contextlib.suppress(*errors):
+        label = Label(raw_sources, raw_readers)  # type: ignore[arg-type]
+        assert isinstance(label.sources, frozenset)
+        assert isinstance(label.readers, Readers)

@@ -3,23 +3,31 @@
 """Unit tests for provenance labels: design cases and attacks on the model."""
 
 import dataclasses
+import datetime as dt
+import enum
+from typing import override
 
 import pytest
 
 from taintwall.core import (
     EmptyLabelError,
     FormatProblem,
+    InvalidKindError,
+    InvalidReadersError,
     InvalidSourceError,
     Label,
     Labeled,
     LabelFormatError,
     MutableValueError,
+    NotALabelError,
+    NotASourceError,
     Readers,
     Source,
     SourceKind,
+    ValueTooDeepError,
     join_all,
 )
-from taintwall.core.labels import MAX_NAME_LENGTH, MAX_SOURCES_PER_KIND
+from taintwall.core.labels import MAX_NAME_LENGTH, MAX_SOURCES_PER_KIND, MAX_VALUE_DEPTH
 
 INVOICE = Source.tool("read_file")
 BALANCE = Source.tool("get_balance")
@@ -229,7 +237,19 @@ class TestSerialization:
             ({"sources": []}, FormatProblem.LABEL_SHAPE),
             ({"sources": [], "readers": "public", "x": 1}, FormatProblem.LABEL_SHAPE),
             ({"sources": "tool:x", "readers": "public"}, FormatProblem.SOURCES_TYPE),
-            ({"sources": [], "readers": "everyone"}, FormatProblem.READERS),
+            (
+                {"sources": [{"kind": "plan", "name": "literal"}], "readers": "everyone"},
+                FormatProblem.READERS,
+            ),
+            (
+                {"sources": [{"kind": "plan", "name": "literal"}], "readers": 1},
+                FormatProblem.READERS,
+            ),
+            ({"sources": [], "readers": "public"}, FormatProblem.NO_SOURCES),
+            (
+                {"sources": [{"kind": "owner", "name": "attacker"}], "readers": "public"},
+                FormatProblem.SOURCE_NAME,
+            ),
             ({"sources": ["tool:x"], "readers": "public"}, FormatProblem.SOURCE_SHAPE),
             (
                 {"sources": [{"kind": "god", "name": "x"}], "readers": "public"},
@@ -248,12 +268,60 @@ class TestSerialization:
 
     def test_validates_names_on_load(self) -> None:
         stored = {"sources": [{"kind": "principal", "name": "*"}], "readers": "public"}
-        with pytest.raises(InvalidSourceError):
+        with pytest.raises(LabelFormatError) as err:
             Label.from_json(stored)
+        assert err.value.problem is FormatProblem.SOURCE_NAME
 
-    def test_empty_source_list_is_rejected(self) -> None:
-        with pytest.raises(EmptyLabelError):
-            Label.from_json({"sources": [], "readers": "public"})
+
+class TestStrictTypes:
+    """Wrongly typed constructor input must fail loudly, never be stored."""
+
+    def test_a_string_kind_cannot_spoof_the_owner(self) -> None:
+        # Attack: "owner" == SourceKind.OWNER for a StrEnum, so a plain string
+        # kind would slip past the owner check and still look like the owner.
+        with pytest.raises(InvalidKindError):
+            Source("owner", "attacker")  # type: ignore[arg-type]
+
+    def test_a_string_kind_is_rejected(self) -> None:
+        with pytest.raises(InvalidKindError):
+            Source("principal", "discord:1")  # type: ignore[arg-type]
+
+    def test_a_non_string_name_is_rejected(self) -> None:
+        with pytest.raises(InvalidSourceError):
+            Source(SourceKind.TOOL, 7)  # type: ignore[arg-type]
+
+    def test_a_mutable_set_is_copied_not_shared(self) -> None:
+        given = {Source.plan()}
+        label = Label(given)  # type: ignore[arg-type]
+        given.add(INVOICE)
+        assert label.sources == {Source.plan()}
+        assert isinstance(label.sources, frozenset)
+        assert hash(label) == hash(Label.of(Source.plan()))
+
+    def test_string_readers_are_rejected(self) -> None:
+        with pytest.raises(InvalidReadersError):
+            Label.of(Source.plan(), readers="user")  # type: ignore[arg-type]
+
+    def test_non_source_items_are_rejected(self) -> None:
+        with pytest.raises(NotASourceError):
+            Label(frozenset({"tool:read_file"}))  # type: ignore[arg-type]
+
+    def test_labeled_needs_a_label(self) -> None:
+        with pytest.raises(NotALabelError):
+            Labeled(1, "plan")  # type: ignore[arg-type]
+
+
+class TestCollapsibleKinds:
+    def test_curated_kinds_never_collapse(self) -> None:
+        # A rebalance over many verified tokens must stay trusted.
+        tokens = [Source(SourceKind.VERIFIED_LIST, f"token-{i}") for i in range(20)]
+        label = Label.of(*tokens)
+        assert label.sources == frozenset(tokens)
+        assert label.only_from({SourceKind.VERIFIED_LIST})
+
+    def test_principals_still_collapse(self) -> None:
+        crowd = [Source.principal(f"discord:{i}") for i in range(MAX_SOURCES_PER_KIND + 1)]
+        assert Label.of(*crowd).sources == {Source.category(SourceKind.PRINCIPAL)}
 
 
 class TestLabeled:
@@ -302,6 +370,70 @@ class TestLabeled:
     def test_rejects_mutable_values(self, value: object) -> None:
         with pytest.raises(MutableValueError):
             Labeled(value, Label.of(Source.plan()))
+
+    def test_rejects_enum_members_with_mutable_values(self) -> None:
+        class Shared(enum.Enum):
+            ITEMS = [1]  # noqa: RUF012
+
+        with pytest.raises(MutableValueError):
+            Labeled(Shared.ITEMS, Label.of(Source.plan()))
+
+    def test_accepts_enum_members_with_immutable_values(self) -> None:
+        assert Labeled(Readers.USER, Label.of(Source.plan())).value is Readers.USER
+
+    def test_rejects_subclasses_of_atoms(self) -> None:
+        class Tagged(str):
+            __slots__ = ("tags",)
+
+        with pytest.raises(MutableValueError):
+            Labeled(Tagged("hi"), Label.of(Source.plan()))
+
+    def test_rejects_too_deep_nesting(self) -> None:
+        deep: tuple[object, ...] = ()
+        for _ in range(MAX_VALUE_DEPTH + 1):
+            deep = (deep,)
+        with pytest.raises(ValueTooDeepError):
+            Labeled(deep, Label.of(Source.plan()))
+
+    def test_survives_attacker_depth_without_recursion_error(self) -> None:
+        deep: tuple[object, ...] = ()
+        for _ in range(10_000):
+            deep = (deep,)
+        with pytest.raises(ValueTooDeepError):
+            Labeled(deep, Label.of(Source.plan()))
+
+    def test_accepts_depth_at_the_limit(self) -> None:
+        deep: tuple[object, ...] = ()
+        for _ in range(MAX_VALUE_DEPTH):
+            deep = (deep,)
+        assert Labeled(deep, Label.of(Source.plan())).value == deep
+
+    def test_datetimes_need_a_fixed_offset(self) -> None:
+        naive = dt.datetime(2026, 11, 18, 12, 0)  # noqa: DTZ001
+        utc = dt.datetime(2026, 11, 18, 12, 0, tzinfo=dt.UTC)
+        assert Labeled(naive, Label.of(Source.plan())).value == naive
+        assert Labeled(utc, Label.of(Source.plan())).value == utc
+
+        class MutableZone(dt.tzinfo):
+            @override
+            def utcoffset(self, _when: dt.datetime | None) -> dt.timedelta:
+                return dt.timedelta(0)
+
+            @override
+            def dst(self, _when: dt.datetime | None) -> dt.timedelta:
+                return dt.timedelta(0)
+
+            @override
+            def tzname(self, _when: dt.datetime | None) -> str:
+                return "MUT"
+
+        with pytest.raises(MutableValueError):
+            Labeled(dt.datetime(2026, 1, 1, tzinfo=MutableZone()), Label.of(Source.plan()))
+
+    def test_nested_labeled_values_are_not_rescanned(self) -> None:
+        inner = Labeled(tuple(range(1000)), Label.of(BALANCE))
+        outer = Labeled((inner,) * 1000, Label.of(BALANCE))
+        assert len(outer.value) == 1000
 
     def test_derive_also_rejects_mutable_values(self) -> None:
         base = Labeled(1, Label.of(Source.plan()))
