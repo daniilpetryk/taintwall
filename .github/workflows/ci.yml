@@ -48,6 +48,32 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
 
+  # Benchmark runners: their own uv projects (AgentDojo on 3.13, the CrAIBench
+  # fork on 3.12). No model is called: the tests use files and fakes only.
+  bench:
+    name: bench
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [common, agentdojo, craibench]
+    env:
+      # Outside the checkout, as locally: mypy . would otherwise read the venv.
+      UV_PROJECT_ENVIRONMENT: /tmp/bench-venv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7" # keep in sync with [tool.uv] required-version
+      - run: uv sync --locked
+        working-directory: bench/${{ matrix.project }}
+      - run: uv run --locked mypy --strict .
+        working-directory: bench/${{ matrix.project }}
+      - run: uv run --locked pytest -q
+        working-directory: bench/${{ matrix.project }}
+
   go:
     name: go
     runs-on: ubuntu-latest

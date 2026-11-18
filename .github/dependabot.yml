@@ -24,6 +24,16 @@ updates:
       bench-agentdojo: { patterns: ["*"] }
     cooldown: { default-days: 7 }
 
+  - package-ecosystem: uv
+    directory: /bench/common
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      bench-common: { patterns: ["*"] }
+    cooldown: { default-days: 7 }
+
+  # bench/craibench is held at CrAIBench's own lock file on purpose; no updates.
+
   - package-ecosystem: gomod
     directory: /signer
     schedule: { interval: weekly }

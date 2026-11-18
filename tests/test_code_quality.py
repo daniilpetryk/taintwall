@@ -22,14 +22,30 @@ QUALITY: Final = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf
 
 
 TESTS: Final = ROOT / "tests"
+BENCH: Final = ROOT / "bench"
+
+
+def bench_files(*, tests: bool) -> list[Path]:
+    """Python files of the benchmark projects; virtualenvs live outside the repo."""
+    return sorted(
+        path
+        for path in BENCH.rglob("*.py")
+        if ("tests" in path.relative_to(BENCH).parts) is tests
+        and not {".venv", "runs"} & set(path.parts)
+    )
 
 
 def modules() -> list[Path]:
+    """Source modules: the package and the benchmark runners."""
+    return sorted(SRC.rglob("*.py")) + bench_files(tests=False)
+
+
+def package_modules() -> list[Path]:
     return sorted(SRC.rglob("*.py"))
 
 
 def collect_test_files() -> list[Path]:
-    return sorted(TESTS.rglob("*.py"))
+    return sorted(TESTS.rglob("*.py")) + bench_files(tests=True)
 
 
 def module_name(path: Path) -> str:
@@ -69,7 +85,7 @@ def reaches_inside(importer: str, imported: str, packages: set[str]) -> bool:
 
 
 def module_id(path: Path) -> str:
-    return str(path.relative_to(SRC))
+    return str(path.relative_to(ROOT))
 
 
 def parse(path: Path) -> ast.Module:
@@ -118,7 +134,7 @@ def test_classes_stay_focused(path: Path) -> None:
     assert crowded_classes(parse(path), QUALITY["max_class_methods"]) == []
 
 
-@pytest.mark.parametrize("path", modules(), ids=module_id)
+@pytest.mark.parametrize("path", package_modules(), ids=module_id)
 def test_packages_are_used_through_their_init(path: Path) -> None:
     importer = module_name(path)
     allowed = set(QUALITY["allowed_internal_imports"])
@@ -206,3 +222,5 @@ def test_the_policy_is_configured() -> None:
         "min_mutation_score",
     }
     assert len(modules()) >= 20
+    assert any(path.parent.name == "craibench_runner" for path in modules())
+    assert any("bench" in path.parts for path in collect_test_files())
