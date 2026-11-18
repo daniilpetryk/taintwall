@@ -8,7 +8,7 @@ An agent with a wallet reads text that strangers write: token names, NFT metadat
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** stage 1, building the core. Provenance labels (`taintwall.core.labels`) are implemented and property-tested; the plan interpreter is next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
+> **Status:** stage 1, building the core. Provenance labels and the plan interpreter for explicit flows (`taintwall.core`) are implemented and property-tested; implicit flows are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
 
 ## The attack it stops
 
@@ -110,7 +110,7 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 - [ ] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
 - [ ] **1** Interpreter with `Labeled[T]`, principals and readers
   - [x] Provenance labels: sources, readers, principals, join, category collapse
-  - [ ] Interpreter: explicit flows, limits, typed errors
+  - [x] Interpreter: explicit flows, limits, typed errors
   - [ ] Implicit flows (`if`/`for`/`while`), strict and lenient modes
 - [ ] **2** Planner and reader, tool registry, plan checker with typed retry
 - [ ] **3** Implicit flows, policy engine, plan-level approval

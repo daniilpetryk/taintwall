@@ -106,7 +106,22 @@ Implemented in `src/taintwall/core/labels.py`. The rules below are what the inte
 - **Equality is type-strict at every level**: `Labeled(1)`, `Labeled(True)` and `Labeled(1.0)` with the same label are different values, also inside tuples, frozensets and records.
 - **Numbers are finite**: NaN and infinities are rejected at labeling time. `NaN > limit` is False, so a NaN amount would slip past a check such as `if amount > limit: deny`.
 
-Carried into the next PRs: labeled containers and field access in the interpreter (PR 2), a provenance trace of which value was derived from which, for the viewer (PR 2), and pc-stack implicit flows (PR 3).
+## Interpreter, explicit flows (stage 1)
+Implemented in `src/taintwall/core/plan.py` (language and static checks), `interpreter.py` (evaluation), `values.py` (records) and `errors.py` (typed codes).
+
+- **Plan language** is an allowlisted subset of Python: assignments to one name, expression statements, literals (`str`, `int`, `float`, `bool`, `None`), tuples and lists (both become immutable tuples), records written as `{"field": value}`, f-strings without conversions or format specs, `+ - * / // %`, unary `- + not`, comparisons including `in`, `and`/`or`, field access `r.field`, indexing by `int` or record key, and calls to tools or the builtins `len`, `abs`, `min`, `max`, `sum` by plain name. Everything else (imports, definitions, lambdas, comprehensions, slices, method calls, `**`, `is`, names or attributes starting with `_`, star arguments) is rejected before evaluation. `if`/`for`/`while` arrive with implicit flows (PR 3).
+- **Bounded before and during evaluation**: source ≤ 20 000 characters, syntax depth ≤ 40 (checked iteratively), and at run time a step budget plus caps on string length, tuple and record size and integer bits (512, enough for uint256 arithmetic). Exceeding any of them is a typed error, never a hang or a crash.
+- **Literals** carry `plan` + the requester (`owner` or one precise `principal`, contribution C). A stranger's plan therefore never produces owner-trusted constants.
+- **Operations** join the deep labels of their operands (every nested element counts). Tuple `+` keeps per-element labels and joins both container labels.
+- **Field and element reads** join the field or element label with the container label (and the index label), so a trusted balance and an untrusted token name in one tool response stay apart (Q2).
+- **`len`** reads only the container label: a count does not depend on what the elements are. Other builtins read deep labels.
+- **`and`/`or`** short-circuit like Python; the result label joins every operand that was evaluated, including the ones that decided which value was returned.
+- **Tool calls**: the result label joins the tool's own label with the deep labels of all arguments, since attacker data that chose an argument influences the result.
+- **Errors to the P-LLM are typed codes** (`PlanErrorCode`) with a line number and, at most, a detail taken from the plan text (a node type or a name). A tool exception becomes `TOOL_FAILED` and its message is dropped, also from `__cause__` and `__context__`, because that text may carry an injection (Q3).
+- **Provenance trace**: every value gets an id and a trace event (`literal`, `operation`, `call`, `field`, `index`, `build`, `assign`) listing its input ids and label, but never the data itself. The viewer (stage 6) renders it.
+- **Tested by** noninterference properties (if a variable's source is not in a result's label, changing that variable does not change the result), a check that every trace event covers its inputs' labels, and mutation probes on each propagation rule. Errors that depend on data (the termination channel) are implicit flows and are handled with the pc stack in PR 3.
+
+Carried into the next PR: pc-stack implicit flows with the strict and lenient switch (Q2), including the termination channel.
 
 ## Web3 layer
 1. **Provenance labels on addresses and amounts.** Addresses from the owner's request, the address book or a verified token list are trusted; addresses from metadata, proposals, messages and other principals are not. Example policies: the `transfer` recipient and the `approve` spender must have trusted provenance; no unlimited `approve`; only tokens from the verified list; slippage limit.
