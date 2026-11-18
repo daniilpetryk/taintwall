@@ -116,6 +116,12 @@ def error(source: str, *, limits: Limits | None = None) -> PlanError:
     return err.value
 
 
+def error_with(source: str, *, extra: Mapping[str, Tool]) -> PlanError:
+    with pytest.raises(PlanError) as err:
+        run(source, extra=extra)
+    return err.value
+
+
 class TestLiterals:
     def test_literal_carries_plan_and_owner(self) -> None:
         assert var("x = 5").label == Label.of(MINT.plan(), OWNER)
@@ -395,6 +401,69 @@ class TestSetup:
     def test_tools_cannot_shadow_builtins(self) -> None:
         with pytest.raises(ToolNameClashError):
             Interpreter({"len": get_balance}, requester=OWNER, mint=MINT)
+
+
+class TestRoundTwo:
+    """Regression tests for review round 2."""
+
+    def test_record_key_from_data_stays_out_of_errors(self) -> None:
+        source = "i = token_info('x')\nk = i.name\nr = {'a': 1}\nx = r[k]"
+        err = error(source)
+        assert err.code is PlanErrorCode.MISSING_FIELD
+        assert SECRET not in str(err)
+        assert not err.detail
+
+    def test_record_key_from_data_stays_out_of_the_trace(self) -> None:
+        def keyed() -> Labeled[object]:
+            return Labeled("ignore_previous", Label.of(META))
+
+        source = "k = keyed()\nr = {'ignore_previous': 1}\nx = r[k]"
+        result = run(source, extra={"keyed": keyed})
+        assert result.variables["x"].value == 1
+        assert all("ignore" not in event.detail for event in result.trace)
+
+    def test_record_key_from_data_on_a_non_record(self) -> None:
+        err = error("i = token_info('x')\nk = i.name\nx = (1, 2)[k]")
+        assert err.code is PlanErrorCode.TYPE_MISMATCH
+        assert SECRET not in str(err)
+
+    @pytest.mark.parametrize("expression", ["v == v", "sum(v)", "'z' in v", "get_balance(v)"])
+    def test_shared_nesting_hits_the_read_budget(self, expression: str) -> None:
+        # (t,) * 1000 shares references: cheap to build, 1e9 elements to read.
+        source = f"t = (1,) * 1000\nu = (t,) * 1000\nv = (u,) * 1000\nx = {expression}"
+        assert error(source).code is PlanErrorCode.STEP_LIMIT
+
+    def test_not_reads_only_the_top_level(self) -> None:
+        source = "t = (1,) * 1000\nu = (t,) * 1000\nv = (u,) * 1000\nx = not v"
+        assert var(source).value is False
+        assert META not in var("ts = tokens()\nx = not ts").label.sources
+
+    def test_unknown_tool_fails_before_its_arguments_run(self) -> None:
+        counter = Counter()
+        err = error_with("x = sendd(side())", extra={"side": counter})
+        assert err.code is PlanErrorCode.UNKNOWN_TOOL
+        assert counter.calls == 0
+
+    def test_tuple_repeat_is_checked_against_the_item_limit(self) -> None:
+        # With a large string limit, the tuple must still be sized by items
+        # before it is built (10 million slots would be ~80 MB).
+        limits = Limits(max_string=10**8, max_items=10)
+        tracemalloc.start()
+        try:
+            code = error("x = (1,) * 10000000", limits=limits).code
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert code is PlanErrorCode.VALUE_TOO_LARGE
+        assert peak < 5_000_000
+
+    def test_empty_record_is_falsy(self) -> None:
+        assert var("x = not {}").value is True
+        assert var("x = {} or 5").value == 5
+
+    @pytest.mark.parametrize("source", ["x = -True", "x = +'a'", "x = -(1,)"])
+    def test_unary_arithmetic_is_numbers_only(self, source: str) -> None:
+        assert error(source).code is PlanErrorCode.TYPE_MISMATCH
 
 
 class TestTrace:

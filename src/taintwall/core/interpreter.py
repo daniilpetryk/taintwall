@@ -14,7 +14,8 @@ Every value is a ``Labeled`` value. Rules for explicit flows (stage 1, PR 2):
   and the labels of its arguments: if attacker data chose which file to read,
   the content depends on the attacker too;
 * reading a field or an element joins the field's label with the container's
-  (and the index's) label; ``len`` reads only the container's label;
+  (and the index's) label; ``len``, ``not`` and truthiness read only the
+  container's label;
 * ``and``/``or`` short-circuit like Python, and the result carries the label
   of every operand that was evaluated, since the left one chose the outcome;
 * arithmetic works on numbers only, plus ``+`` for two strings or two tuples
@@ -74,6 +75,13 @@ class Limits:
 
     max_int_bits: int = 512
     """Bits in one integer: twice uint256, room for one multiplication."""
+
+    max_visits: int = 1_000_000
+    """Nested elements read per run (comparisons, labels, builtins).
+
+    Repetition shares references, so ``(t,) * 1000`` is cheap to build but
+    has a million elements to read; this budget bounds the reading.
+    """
 
 
 class EventKind(enum.StrEnum):
@@ -141,7 +149,6 @@ _BINARY: Final[Mapping[type[ast.operator], Callable[..., object]]] = {
 _UNARY: Final[Mapping[type[ast.unaryop], Callable[..., object]]] = {
     ast.USub: operator.neg,
     ast.UAdd: operator.pos,
-    ast.Not: operator.not_,
 }
 _COMPARE: Final[Mapping[type[ast.cmpop], Callable[..., object]]] = {
     ast.Eq: operator.eq,
@@ -202,37 +209,13 @@ class Interpreter:
         return run.result()
 
 
-def _plain(value: object) -> object:
-    """The value with every nested label removed, for computing and comparing."""
-    if isinstance(value, Labeled):
-        return _plain(value.value)
+def _truthy(value: object) -> bool:
+    """Python truthiness of a plan value, reading only its top level."""
     if type(value) is tuple:
-        return tuple(_plain(item) for item in value)
+        return len(value) > 0
     if isinstance(value, Record):
-        return {name: _plain(field) for name, field in value.fields}
-    return value
-
-
-def _nested_labels(value: object) -> list[Label]:
-    """Labels of every element nested inside ``value``."""
-    labels: list[Label] = []
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, Labeled):
-            labels.append(item.label)
-            pending.append(item.value)
-        elif type(item) is tuple:
-            pending.extend(item)
-        elif isinstance(item, Record):
-            pending.extend(field for _, field in item.fields)
-    return labels
-
-
-def _deep_label(ref: _Ref) -> Label:
-    """The label of a value and of everything nested in it."""
-    labeled, _ = ref
-    return join_all(labeled.label, *_nested_labels(labeled.value))
+        return len(value.fields) > 0
+    return bool(value)
 
 
 def _line(node: ast.AST) -> int:
@@ -251,6 +234,7 @@ class _Run:
         self._variables: dict[str, _Ref] = {}
         self._trace: list[TraceEvent] = []
         self._steps = 0
+        self._visits = 0
 
     def result(self) -> RunResult:
         variables = {name: ref[0] for name, ref in self._variables.items()}
@@ -320,7 +304,9 @@ class _Run:
         if isinstance(node.op, ast.Mult):
             sequence, count = (a, b) if type(b) is int else (b, a)
             if type(count) is int and type(sequence) in {str, tuple}:
-                self._check_length(len(sequence) * max(count, 0), node)  # type: ignore[arg-type]
+                limit = self._limits.max_string if type(sequence) is str else self._limits.max_items
+                if len(sequence) * max(count, 0) > limit:  # type: ignore[arg-type]
+                    raise PlanError(PlanErrorCode.VALUE_TOO_LARGE, _line(node))
                 # Repetition keeps per-element labels, like concatenation.
                 value = sequence * count  # type: ignore[operator]
                 return self._new(
@@ -336,11 +322,16 @@ class _Run:
     def _unary(self, node: ast.expr) -> _Ref:
         assert isinstance(node, ast.UnaryOp)  # noqa: S101 - dispatch guarantees the type
         operand = self.expr(node.operand)
-        value = self._apply(node, _UNARY[type(node.op)], _plain(operand[0].value))
         name = type(node.op).__name__
-        return self._new(
-            value, _deep_label(operand), EventKind.OPERATION, node, name, (operand[1],)
-        )
+        inner = operand[0].value
+        if isinstance(node.op, ast.Not):
+            # Truthiness depends on emptiness only, like ``len``.
+            value: object = not _truthy(inner)
+        elif type(inner) in _NUMBERS:
+            value = self._apply(node, _UNARY[type(node.op)], inner)
+        else:
+            raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), name)
+        return self._new(value, operand[0].label, EventKind.OPERATION, node, name, (operand[1],))
 
     def _compare(self, node: ast.expr) -> _Ref:
         assert isinstance(node, ast.Compare)  # noqa: S101 - dispatch guarantees the type
@@ -349,9 +340,11 @@ class _Run:
         for op, left, right in zip(node.ops, operands, operands[1:], strict=False):
             check = _COMPARE[type(op)]
             result = result and bool(
-                self._apply(node, check, _plain(left[0].value), _plain(right[0].value))
+                self._apply(
+                    node, check, self._plain(left[0].value, node), self._plain(right[0].value, node)
+                )
             )
-        label = join_all(*(_deep_label(ref) for ref in operands))
+        label = join_all(*(self._deep_label(ref, node) for ref in operands))
         inputs = tuple(ref[1] for ref in operands)
         return self._new(result, label, EventKind.OPERATION, node, "Compare", inputs)
 
@@ -362,9 +355,9 @@ class _Run:
         for operand in node.values:
             ref = self.expr(operand)
             evaluated.append(ref)
-            if bool(_plain(ref[0].value)) is stop_on_true:
+            if _truthy(ref[0].value) is stop_on_true:
                 break
-        label = join_all(*(_deep_label(ref) for ref in evaluated))
+        label = join_all(*(self._deep_label(ref, node) for ref in evaluated))
         inputs = tuple(ref[1] for ref in evaluated)
         chosen = evaluated[-1][0].value
         return self._new(chosen, label, EventKind.OPERATION, node, type(node.op).__name__, inputs)
@@ -373,13 +366,15 @@ class _Run:
         assert isinstance(node, ast.Call)  # noqa: S101 - dispatch guarantees the type
         assert isinstance(node.func, ast.Name)  # noqa: S101 - parse_plan guarantees it
         name = node.func.id
+        # Resolve the name first, as Python does: a misspelled outer call must
+        # fail before its arguments run tools with side effects.
+        entry = self._tools.get(name)
+        if entry is None and name not in BUILTINS:
+            raise PlanError(PlanErrorCode.UNKNOWN_TOOL, _line(node), name)
         args = [self.expr(arg) for arg in node.args]
         kwargs = {kw.arg: self.expr(kw.value) for kw in node.keywords if kw.arg is not None}
-        if name in BUILTINS:
-            return self._builtin(node, name, args, kwargs)
-        entry = self._tools.get(name)
         if entry is None:
-            raise PlanError(PlanErrorCode.UNKNOWN_TOOL, _line(node), name)
+            return self._builtin(node, name, args, kwargs)
         tool, stamp = entry
         result: object = None
         # Any tool failure becomes one typed code, raised below outside the
@@ -392,7 +387,7 @@ class _Run:
         all_args = [*args, *kwargs.values()]
         # The tool's source is stamped here: a tool may return any label,
         # including a trusted one it received, and must not launder data.
-        label = join_all(stamp, result.label, *(_deep_label(ref) for ref in all_args))
+        label = join_all(stamp, result.label, *(self._deep_label(ref, node) for ref in all_args))
         inputs = tuple(ref[1] for ref in all_args)
         return self._new(result.value, label, EventKind.CALL, node, name, inputs)
 
@@ -411,35 +406,42 @@ class _Run:
         function, arity = _FUNCTIONS[name]
         if arity is not None and len(args) != arity:
             raise PlanError(PlanErrorCode.BAD_ARGUMENTS, _line(node), name)
-        value = self._apply(node, function, *(_plain(ref[0].value) for ref in args))
+        value = self._apply(node, function, *(self._plain(ref[0].value, node) for ref in args))
         if type(value) not in _ATOMS:
             # min/max over sequences of containers: results must be atoms.
             raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), name)
-        label = join_all(*(_deep_label(ref) for ref in args))
+        label = join_all(*(self._deep_label(ref, node) for ref in args))
         return self._new(value, label, EventKind.OPERATION, node, name, inputs)
 
     def _attribute(self, node: ast.expr) -> _Ref:
         assert isinstance(node, ast.Attribute)  # noqa: S101 - dispatch guarantees the type
         container = self.expr(node.value)
-        return self._field(node, container, node.attr, ())
+        return self._field(node, container, node.attr, node.attr, ())
 
-    def _field(self, node: ast.expr, container: _Ref, name: str, extra: tuple[_Ref, ...]) -> _Ref:
+    def _field(
+        self, node: ast.expr, container: _Ref, name: str, detail: str, extra: tuple[_Ref, ...]
+    ) -> _Ref:
+        """Read field ``name`` of a record.
+
+        ``detail`` is plan text only: for ``r[key]`` the key is data and may
+        carry an injection, so it never reaches errors or the trace (Q3).
+        """
         record = container[0].value
         if not isinstance(record, Record):
-            raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), name)
+            raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), detail)
         field = record.get(name)
         if field is None:
-            raise PlanError(PlanErrorCode.MISSING_FIELD, _line(node), name)
+            raise PlanError(PlanErrorCode.MISSING_FIELD, _line(node), detail)
         label = join_all(field.label, container[0].label, *(ref[0].label for ref in extra))
         inputs = (container[1], *(ref[1] for ref in extra))
-        return self._new(field.value, label, EventKind.FIELD, node, name, inputs)
+        return self._new(field.value, label, EventKind.FIELD, node, detail, inputs)
 
     def _subscript(self, node: ast.expr) -> _Ref:
         assert isinstance(node, ast.Subscript)  # noqa: S101 - dispatch guarantees the type
         container, index = self.expr(node.value), self.expr(node.slice)
         sequence, position = container[0].value, index[0].value
         if isinstance(sequence, Record) and type(position) is str:
-            return self._field(node, container, position, (index,))
+            return self._field(node, container, position, "", (index,))
         if type(sequence) not in {tuple, str} or type(position) is not int:
             raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node))
         try:
@@ -487,11 +489,43 @@ class _Run:
             length += len(text)
             self._check_length(length, part)
             parts.append(text)
-        label = join_all(self._literal_label, *(_deep_label(ref) for ref in refs))
+        label = join_all(self._literal_label, *(self._deep_label(ref, node) for ref in refs))
         inputs = tuple(ref[1] for ref in refs)
         return self._new("".join(parts), label, EventKind.OPERATION, node, "format", inputs)
 
     # --- helpers ------------------------------------------------------------
+
+    def _visit(self, node: ast.AST) -> None:
+        self._visits += 1
+        if self._visits > self._limits.max_visits:
+            raise PlanError(PlanErrorCode.STEP_LIMIT, _line(node))
+
+    def _plain(self, value: object, node: ast.AST) -> object:
+        """The value with every nested label removed, for computing and comparing."""
+        self._visit(node)
+        if isinstance(value, Labeled):
+            return self._plain(value.value, node)
+        if type(value) is tuple:
+            return tuple(self._plain(item, node) for item in value)
+        if isinstance(value, Record):
+            return {name: self._plain(field, node) for name, field in value.fields}
+        return value
+
+    def _deep_label(self, ref: _Ref, node: ast.AST) -> Label:
+        """The label of a value and of everything nested in it."""
+        labels = [ref[0].label]
+        pending: list[object] = [ref[0].value]
+        while pending:
+            self._visit(node)
+            item = pending.pop()
+            if isinstance(item, Labeled):
+                labels.append(item.label)
+                pending.append(item.value)
+            elif type(item) is tuple:
+                pending.extend(item)
+            elif isinstance(item, Record):
+                pending.extend(field for _, field in item.fields)
+        return join_all(*labels)
 
     def _apply(self, node: ast.AST, function: Callable[..., object], *args: object) -> object:
         try:
@@ -504,8 +538,8 @@ class _Run:
             raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node)) from None
 
     def _check_length(self, length: int, node: ast.AST) -> None:
-        """Reject a string or tuple length before the value is built."""
-        if length > max(self._limits.max_string, self._limits.max_items):
+        """Reject a string length before the string is built."""
+        if length > self._limits.max_string:
             raise PlanError(PlanErrorCode.VALUE_TOO_LARGE, _line(node))
 
     def _check_size(self, value: object, node: ast.AST) -> None:
