@@ -8,7 +8,7 @@ HADOLINT  := $(call tool_image,hadolint)
 GRYPE     := $(call tool_image,grype)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline audit hooks \
+.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline bench-craibench bench-test audit hooks \
         py-lint py-test go-lint go-test lint-docker \
         docker-build docker-check scan scan-images clean
 
@@ -43,11 +43,20 @@ diff-cov: ## Changed lines vs origin/dev must be 100% covered (as CI does)
 
 # The benchmark projects keep their virtualenvs outside the repo: REUSE and
 # other repo-wide scanners would otherwise read thousands of vendored files.
-BENCH_ENV ?= $(HOME)/.cache/taintwall/bench-agentdojo-venv
+BENCH_CACHE ?= $(HOME)/.cache/taintwall
 
-bench-baseline: ## AgentDojo banking baseline (spends OpenRouter credit; ceiling MAX_COST, default 1.0)
-	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_ENV) uv run python baseline.py \
-		--mode all --max-cost $(or $(MAX_COST),1.0) --run-name $(or $(RUN),banking-haiku-5.5)
+bench-baseline: ## AgentDojo banking baseline (spends OpenRouter credit; ATTACK, MAX_COST)
+	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python baseline.py \
+		--mode all --attack $(or $(ATTACK),important_instructions) \
+		--max-cost $(or $(MAX_COST),1.0) --run-name $(or $(RUN),banking-haiku-5.5)
+
+bench-craibench: ## CrAIBench crypto suites (spends credit; MODE, SAMPLE, MEMORY=1, MAX_COST)
+	cd bench/craibench && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-craibench-venv uv run python baseline.py \
+		--mode $(or $(MODE),utility) $(if $(SAMPLE),--sample $(SAMPLE)) $(if $(MEMORY),--memory-injection) \
+		--max-cost $(or $(MAX_COST),0.5) --run-name $(or $(RUN),craibench-haiku-5.5)
+
+bench-test: ## Tests of the shared benchmark code (metering, cost ceiling, statistics)
+	cd bench/common && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-common-venv uv run --with pytest pytest -q tests
 
 mutate: ## Mutation testing of core (slow; CI runs it nightly)
 	uv run mutmut run

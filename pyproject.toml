@@ -94,6 +94,12 @@ ignore = [
 "bench/**" = [
     "INP001",  # benchmark runners are scripts in their own uv projects
 ]
+"bench/common/tests/**" = [
+    "S101",     # assert is how pytest works
+    "D",        # test names are the documentation
+    "PLR2004",  # magic values are normal in expected results
+    "INP001",   # tests/ is not a package
+]
 "tests/**" = [
     "S101",     # assert is how pytest works
     "PLR6301",  # test classes group tests; methods need not use self

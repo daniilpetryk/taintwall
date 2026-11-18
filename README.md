@@ -110,8 +110,7 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 - [ ] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
   - [x] Repo skeleton, CI and quality gates
   - [x] CrAIBench review ([`docs/craibench-review.md`](docs/craibench-review.md))
-  - [x] Banking baseline, Haiku 5.5: utility 69%, ASR 0% for $0.17 ([`docs/baselines.md`](docs/baselines.md))
-  - [ ] Attacks and models where the plain agent fails, so a defense has something to remove
+  - [x] Baselines with Haiku 5.5 ([`docs/baselines.md`](docs/baselines.md)): prompt-injection ASR 0–4% on AgentDojo banking and CrAIBench, **memory-injection ASR 48–67%** on CrAIBench; $1.23 in total
 - [ ] **1** Interpreter with `Labeled[T]`, principals and readers
   - [x] Provenance labels: sources, readers, principals, join, category collapse
   - [x] Interpreter: explicit flows, limits, typed errors

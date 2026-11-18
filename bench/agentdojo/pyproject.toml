@@ -6,13 +6,15 @@ requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"
 dependencies = [
     "agentdojo==0.1.35",
-    "openai>=1.59.7",
-    "python-dotenv>=1.0.1",
+    "taintwall-bench-common",
 ]
 
 [tool.uv]
 required-version = ">=0.13.7,<0.14"
 package = false
+
+[tool.uv.sources]
+taintwall-bench-common = { path = "../common", editable = true }
 
 [tool.mypy]
 python_version = "3.13"
