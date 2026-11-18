@@ -1,6 +1,6 @@
 # CrAIBench review (stage 0)
 
-Reviewed 2026-11-17 from the public repo [`AthaSSiN/CrAIBench`](https://github.com/AthaSSiN/CrAIBench) (default branch `main`, last push 2026-01-09). Read only: nothing from the repo was installed or run.
+Reviewed 2026-11-17 from the public repo [`AthaSSiN/CrAIBench`](https://github.com/AthaSSiN/CrAIBench) (default branch `main`, last push 2026-01-09). Read only at first; since run as `bench/craibench` (see [`baselines.md`](baselines.md)).
 
 ## What it is
 
@@ -11,15 +11,23 @@ Reviewed 2026-11-17 from the public repo [`AthaSSiN/CrAIBench`](https://github.c
 
 ## Suites
 
-| Suite | User tasks | Injection tasks | User × injection pairs |
+| Suite | User tasks | Injection tasks | Valid pairs |
 |---|---:|---:|---:|
-| `chain` | 32 | 14 | 448 |
-| `chain2` | 8 | 11 | 88 |
+| `chain` | 32 | 14 | 64 |
+| `chain2` | 8 | 11 | not registered in `load_suites` |
 | `crypto_trading` | 94 | 5 | 470 |
-| `dao_nft` | 40 | 17 | 680 |
-| **crypto total** | **174** | **47** | **1,686** |
+| `dao_nft` | 40 | 17 | 155 |
+| **runnable total** | **166** | **36** | **689** |
 
-Each pair can run with several attack types, so the full security matrix is far beyond the budget. We sample (Q13) and report confidence intervals.
+**Correction (2026-11-18, from running it):** not every user × injection
+combination is valid. CrAIBench's run scripts (`run_script_chain.sh`,
+`run_script_dao.sh`) list which injection tasks belong to each user task;
+only `crypto_trading` allows every pair. The first version of this table
+counted the full cross product (1,686). The valid pairs are kept in
+`bench/craibench/pairs.json`. `chain2` exists in the source tree but is not
+registered as a suite.
+
+Each pair can run through two channels (prompt injection in tool output, and CrAIBench's memory injection) and several attack types. We run the small suites in full, sample `crypto_trading` (Q13), and report 95% Wilson intervals.
 
 ## Are the tools on-chain?
 
@@ -32,3 +40,35 @@ Each pair can run with several attack types, so the full security matrix is far 
 3. **Package name clash.** Upstream AgentDojo and CrAIBench both install as `agentdojo`, so they cannot share one environment. Plan: two separate uv projects, `bench/agentdojo` (upstream, current version) and `bench/craibench` (the fork, pinned to a commit), each with its own lockfile.
 4. **Types are weaker than ours.** Float amounts and plain-string addresses mean our typed amounts and address labels map onto CrAIBench through an adapter, not natively.
 5. **Prior baselines exist.** Their logged runs let us sanity-check our plain-agent baseline against published numbers before spending budget.
+
+## Running it (2026-11-18)
+
+- Installs only with its own `requirements.lock`: the fork imports provider
+  SDK names that later releases removed (`cohere`, `openapi-pydantic`), and
+  its pinned `tokenizers` has no Python 3.13 wheel. `bench/craibench` uses
+  Python 3.12 and turns that lock file into uv `constraint-dependencies`.
+- Its OpenAI SDK (1.31) returns usage details as untyped extras, which broke
+  our cost metering until it read usage as plain data (`bench/common`).
+- Its resume check never finds finished results: logs are written under
+  `<model>/<system message>/<suite>/…` (memory runs with a
+  `_memory_injection` suffix) but looked up under `<model>/<suite>/…`. Every
+  rerun repeats every pair; our runner reads results itself.
+- Its lock file pins many packages with known vulnerabilities (128
+  Dependabot alerts: aiohttp, urllib3, h11, anyio, certifi, langchain-core,
+  deepdiff, fsspec, pyasn1, dnspython, filelock, orjson, pygments,
+  python-dotenv, langgraph-sdk, the Google client stack). They are released from the constraints and resolve to
+  patched versions; langchain 1.x no longer pulls aiohttp at all, and
+  pydantic moves 2.7.3 → 2.9.2. The fork's offline tests and a live task
+  pass on them. The SDKs that broke it (openai, cohere, openapi-pydantic)
+  stay at its versions. deepdiff, the one released package that scores
+  tasks, is used only by the workspace suite, so the chain, dao_nft and
+  crypto_trading scores are unaffected; the baseline in `baselines.md` was
+  computed on the old lock. Two alerts cannot be fixed by updating:
+  protobuf (JSON recursion depth) and google-cloud-aiplatform (predictable
+  bucket names), because the fork depends on `vertexai`, whose last release
+  (1.71.1) pins both. The fork imports its Google client at start-up, but
+  our runs never call it, never create buckets, and never parse untrusted
+  JSON through protobuf.
+- Like AgentDojo, it scores a context-length or server error as
+  `security=True`; our client turns provider errors into an error neither
+  catches.

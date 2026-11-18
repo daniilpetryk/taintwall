@@ -2,13 +2,13 @@
 
 **Prompt-injection defense for AI agents that hold a crypto wallet: by architecture, not by prompting.**
 
-![status](https://img.shields.io/badge/status-design%20phase-orange) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
+![status](https://img.shields.io/badge/status-stage%201%3A%20core-yellow) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 An agent with a wallet reads text that strangers write: token names, NFT metadata, DAO proposals, invoices, web pages, group-chat messages. If any of that text can steer what the agent does next, one crafted token name is enough to drain the wallet, and the loss is irreversible.
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** design phase, no code yet. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
+> **Status:** stage 1, building the core. Provenance labels and the plan interpreter for explicit flows (`taintwall.core`) are implemented and property-tested; implicit flows are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
 
 ## The attack it stops
 
@@ -107,8 +107,14 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 ## Roadmap
 
 - [x] Design, threat model and 13 design decisions
-- [ ] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
+- [x] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
+  - [x] Repo skeleton, CI and quality gates
+  - [x] CrAIBench review ([`docs/craibench-review.md`](docs/craibench-review.md))
+  - [x] Baselines with Haiku 5.5 ([`docs/baselines.md`](docs/baselines.md)): prompt-injection ASR 0–4% on AgentDojo banking and CrAIBench, **memory-injection ASR 48–67%** on CrAIBench; $1.23 in total
 - [ ] **1** Interpreter with `Labeled[T]`, principals and readers
+  - [x] Provenance labels: sources, readers, principals, join, category collapse
+  - [x] Interpreter: explicit flows, limits, typed errors
+  - [ ] Implicit flows (`if`/`for`/`while`), strict and lenient modes
 - [ ] **2** Planner and reader, tool registry, plan checker with typed retry
 - [ ] **3** Implicit flows, policy engine, plan-level approval
 - [ ] **4** Persistent label store, CrAIBench integration, anvil environment
@@ -142,7 +148,9 @@ Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make
 
 **Lint rules.** Python enables every stable ruff rule and lists each exception with a reason in `pyproject.toml`; banned APIs include `pickle`, `marshal`, `shelve` and shell execution. Two type checkers with different engines must both pass: strict mypy with extra error codes, and Pyrefly. Go enables 78 golangci-lint linters in `signer/.golangci.yml`, including `gosec`, `depguard` (no `math/rand` in the signer), `forbidigo` and `modernize`; every linter left off is listed there with a reason.
 
-**Architecture contracts.** `lint-imports` (Import Linter) enforces security invariants of the design as import rules: the policy engine never imports the LLM layer, the LLM layer cannot reach tools, the chain or the store, and the core depends on no integration layer.
+**Architecture contracts.** `lint-imports` (Import Linter) enforces security invariants of the design as import rules: the policy engine never imports the LLM layer, the LLM layer cannot reach tools, the chain or the store, and the core depends on no integration layer. Layer contracts fix the dependency direction inside `core`, `core.interpreter` and `core.labels`.
+
+**Clean-code gates.** CI fails on complexity above 8, more than 5 arguments, modules over 300 lines, functions over 40 lines, classes over 15 methods, modules named `utils` or `helpers`, imports into another package's internals, duplicate code, branch coverage under 95%, and any changed line without a test. Mutation testing of the core runs nightly with a score floor. Every limit is a number in `pyproject.toml`; [`docs/code-quality.md`](docs/code-quality.md) lists each gate, where it lives, and the layer map.
 
 **Licensing.** The repo is [REUSE](https://reuse.software) compliant: `REUSE.toml` plus SPDX headers give every file a machine-readable license, checked on every commit.
 
@@ -186,14 +194,16 @@ Folders marked *(planned)* do not exist yet.
 
 ```
 src/taintwall/
-  core/      interpreter, Labeled[T], plan language, static checker
+  core/      plan language and checker, records, typed errors, mint
+    labels/      sources, labels, Labeled[T] values
+    interpreter/ evaluator, node handlers, operators, tools, limits, trace
   llm/       provider-agnostic LLM client (OpenRouter), response cache
   policy/    policy engine, YAML schema
   store/     label-preserving memory, address book, caches (SQLite)
   tools/     tool registry, MCP adapter
   web3/      chain tools, anvil simulation, effect accounting
 signer/      Go signing service
-bench/       AgentDojo, CrAIBench and own anvil task suites (planned)
+bench/       benchmark runs: agentdojo/ (baseline done), CrAIBench and own anvil suites (planned)
 viewer/      provenance graph UI (planned)
 docker/      Dockerfiles for signer, app and dev toolbox
 docs/        design and architecture

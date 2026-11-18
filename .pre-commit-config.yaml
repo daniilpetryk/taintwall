@@ -32,7 +32,7 @@ repos:
   # spelling in code, docs and config; report only: auto-fixing identifiers
   # once turned the linter names decorder/importas into decoder/imports
   - repo: https://github.com/crate-ci/typos
-    rev: v1.52.0
+    rev: v1.52.2
     hooks:
       - id: typos
         args: []

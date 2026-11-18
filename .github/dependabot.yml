@@ -16,6 +16,26 @@ updates:
       python: { patterns: ["*"] }
     cooldown: { default-days: 7 }
 
+  - package-ecosystem: uv
+    directory: /bench/agentdojo
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      bench-agentdojo: { patterns: ["*"] }
+    # Must match exclude-newer in that project: uv refuses anything younger.
+    cooldown: { default-days: 14 }
+
+  - package-ecosystem: uv
+    directory: /bench/common
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      bench-common: { patterns: ["*"] }
+    # Must match exclude-newer in that project: uv refuses anything younger.
+    cooldown: { default-days: 14 }
+
+  # bench/craibench is held at CrAIBench's own lock file on purpose; no updates.
+
   - package-ecosystem: gomod
     directory: /signer
     schedule: { interval: weekly }
