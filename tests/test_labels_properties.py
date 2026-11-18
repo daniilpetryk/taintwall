@@ -6,21 +6,48 @@ These laws are what the interpreter relies on. If any of them broke, the
 order in which a plan combines values could change what a policy sees.
 """
 
+import contextlib
+import json
+
 from hypothesis import given
 from hypothesis import strategies as st
 
-from taintwall.core import Label, Labeled, Readers, Source, SourceKind
-from taintwall.core.labels import CATEGORY, MAX_SOURCES_PER_KIND
+from taintwall.core import (
+    EmptyLabelError,
+    InvalidSourceError,
+    Label,
+    Labeled,
+    LabelFormatError,
+    Readers,
+    Source,
+    SourceKind,
+)
+from taintwall.core.labels import MAX_SOURCES_PER_KIND
 
 # A small name pool makes collisions and crowded kinds likely, so collapsing
 # into categories is exercised, not just plain unions.
-names = st.sampled_from([f"n{i}" for i in range(MAX_SOURCES_PER_KIND + 3)] + [CATEGORY])
-sources = st.builds(Source, kind=st.sampled_from(SourceKind), name=names)
+NAMES = [f"n{i}" for i in range(MAX_SOURCES_PER_KIND + 3)]
+NON_OWNER_KINDS = [kind for kind in SourceKind if kind is not SourceKind.OWNER]
+
+sources = st.one_of(
+    st.just(Source.owner()),
+    st.builds(Source, kind=st.sampled_from(NON_OWNER_KINDS), name=st.sampled_from(NAMES)),
+    st.builds(Source.category, st.sampled_from(NON_OWNER_KINDS)),
+)
 readers = st.sampled_from(Readers)
 labels = st.builds(
     Label,
     sources=st.frozensets(sources, min_size=1, max_size=3 * MAX_SOURCES_PER_KIND),
     readers=readers,
+)
+TRUSTED_KINDS = {SourceKind.PLAN, SourceKind.OWNER, SourceKind.ADDRESS_BOOK}
+
+json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.text(max_size=20),
+    lambda inner: (
+        st.lists(inner, max_size=4) | st.dictionaries(st.text(max_size=8), inner, max_size=4)
+    ),
+    max_leaves=12,
 )
 
 
@@ -68,12 +95,17 @@ def test_no_kind_exceeds_the_limit(a: Label) -> None:
 
 
 @given(labels, labels)
-def test_only_from_is_monotone(a: Label, b: Label) -> None:
+def test_trust_is_monotone(a: Label, b: Label) -> None:
     # Joining can never turn an untrusted value into a trusted one.
-    trusted = {SourceKind.PLAN, SourceKind.ADDRESS_BOOK, SourceKind.USER_CONFIRMED}
-    if a.join(b).only_from(trusted):
-        assert a.only_from(trusted)
-        assert b.only_from(trusted)
+    if a.join(b).only_from(TRUSTED_KINDS):
+        assert a.only_from(TRUSTED_KINDS)
+        assert b.only_from(TRUSTED_KINDS)
+
+
+@given(labels)
+def test_a_label_with_a_category_is_never_trusted(a: Label) -> None:
+    if any(source.is_category for source in a.sources):
+        assert not a.all_sources(lambda _source: True)
 
 
 @given(labels, st.lists(labels, max_size=4))
@@ -84,3 +116,26 @@ def test_derive_label_covers_all_inputs(base: Label, others: list[Label]) -> Non
     assert derived.label.covers(base)
     for label in others:
         assert derived.label.covers(label)
+
+
+@given(labels)
+def test_json_round_trip(a: Label) -> None:
+    # Through real JSON text, as the label store will do.
+    assert Label.from_json(json.loads(json.dumps(a.to_json()))) == a
+
+
+@given(json_values)
+def test_from_json_rejects_garbage_cleanly(data: object) -> None:
+    # Fuzz: arbitrary JSON either loads or fails with one of our errors.
+    with contextlib.suppress(LabelFormatError, InvalidSourceError, EmptyLabelError):
+        Label.from_json(data)
+
+
+@given(st.sampled_from(NON_OWNER_KINDS), st.text(max_size=40))
+def test_no_name_can_become_owner_or_category(kind: SourceKind, name: str) -> None:
+    try:
+        source = Source(kind, name)
+    except InvalidSourceError:
+        return
+    assert source.kind is not SourceKind.OWNER
+    assert not source.is_category

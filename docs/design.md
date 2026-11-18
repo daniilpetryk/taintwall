@@ -88,6 +88,22 @@ All decided 2026-11-17. Q2, Q3 and Q7 are switches: both settings are built and 
 - **Q12: owner = platform IDs in config** (Discord/Telegram account IDs + local CLI). Display names never used; quoted, forwarded or replied-to content keeps its original author; others read-only by default. SIWE-signed messages for large actions: later.
 - **Q13: CrAIBench rule.** Stage 0 starts by reading its repo, license and sampling options. Mocked tools → run on it + 10–15 own anvil tasks; on-chain → extend it. Never own-suite-only. **Outcome (stage 0 review, 2026-11-17):** tools are mocked, so we run on it and add our own anvil tasks. CrAIBench is an AgentDojo fork (MIT, 174 crypto user tasks, 47 injection tasks); it lives in a separate uv project because both install as `agentdojo`. See [`craibench-review.md`](craibench-review.md).
 
+## Label model (stage 1)
+Implemented in `src/taintwall/core/labels.py`. The rules below are what the interpreter and the policy engine may rely on.
+
+- **Source** = kind + name. Kinds: `plan`, `owner`, `principal`, `tool`, `address_book`, `user_confirmed`, `verified_list`, `system`.
+- **The owner is a kind, not a name.** Owner identity comes from config (Q12); a chat handle can only ever produce a `principal` source, so a stranger named `owner` is still a stranger.
+- **Names are untrusted input** (chat handles, tool names from MCP servers). They must match `[A-Za-z0-9][A-Za-z0-9._:@/+-]*`, ASCII only (no look-alike letters), at most 128 characters. Principals are platform identities such as `discord:123`.
+- **Categories** (`name=None`, printed as `kind:*`) stand for every source of a kind. They exist only in code: no string parses into a category, and the owner has none. More than 8 sources of one kind collapse into the category, and a category absorbs specific sources of its kind. This keeps joins associative and idempotent.
+- **Readers**: `public` < `user`. A join keeps the stricter.
+- **Join** = union of sources (then normalized) + stricter readers. It never makes a label cleaner: proven by property tests (commutative, associative, idempotent, covers both inputs, trust is monotone).
+- **Trust** is computed by policies with `Label.all_sources(predicate)`, per source, so an RPC balance and token metadata (both `tool`) can be told apart. A category never passes a trust predicate: collapsing loses names, so it costs utility but never safety.
+- **Confirmation is per call**: `user_confirmed:<call-id>`; a policy accepts only the ID of the call being confirmed.
+- **Values are immutable**: `Labeled` rejects lists, dicts, sets and non-frozen dataclasses, so a value cannot change behind its label. Nested `Labeled` values inside tuples or frozen dataclasses carry per-field labels (Q2).
+- **Storage**: `Label.to_json` / `from_json` round-trip, with every field revalidated on load (Q11).
+
+Carried into the next PRs: labeled containers and field access in the interpreter (PR 2), a provenance trace of which value was derived from which, for the viewer (PR 2), and pc-stack implicit flows (PR 3).
+
 ## Web3 layer
 1. **Provenance labels on addresses and amounts.** Addresses from the owner's request, the address book or a verified token list are trusted; addresses from metadata, proposals, messages and other principals are not. Example policies: the `transfer` recipient and the `approve` spender must have trusted provenance; no unlimited `approve`; only tokens from the verified list; slippage limit.
 2. **Simulation before signing with effect accounting (contribution A).** The transaction runs on an anvil fork at a pinned block; the policy joins the diff with plan labels: every effect must be explained, outflow ≤ X and only to trusted addresses. USD values come from `price_source` (Q7).
