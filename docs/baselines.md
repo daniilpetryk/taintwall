@@ -64,6 +64,12 @@ a cent for reruns while fixing the runner.
   with a missing argument. These are skipped and listed in the run summaries;
   memory injection reaches all of them.
 
+## Data
+
+Every summary and every pair's scores are committed in
+[`bench/results/`](../bench/results/README.md); transcripts and the response
+cache stay local.
+
 ## Reproduce
 
 ```bash

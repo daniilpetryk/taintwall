@@ -97,7 +97,7 @@ ignore = [
 "bench/**" = [
     "INP001",  # benchmark runners are scripts in their own uv projects
 ]
-"bench/common/tests/**" = [
+"bench/*/tests/**" = [
     "S101",     # assert is how pytest works
     "D",        # test names are the documentation
     "PLR2004",  # magic values are normal in expected results

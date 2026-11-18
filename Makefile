@@ -55,8 +55,12 @@ bench-craibench: ## CrAIBench crypto suites (spends credit; MODE, SAMPLE, MEMORY
 		--mode $(or $(MODE),utility) $(if $(SAMPLE),--sample $(SAMPLE)) $(if $(MEMORY),--memory-injection) \
 		--max-cost $(or $(MAX_COST),0.5) --run-name $(or $(RUN),craibench-haiku-5.5)
 
-bench-test: ## Tests of the shared benchmark code (metering, cost ceiling, statistics)
-	cd bench/common && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-common-venv uv run --locked pytest -q tests
+bench-test: ## Types and tests of every benchmark project (no model calls), as CI's bench job
+	@for project in common agentdojo craibench; do \
+		echo "== bench/$$project"; \
+		(cd bench/$$project && export UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-$$project-venv && \
+			uv run --locked mypy --strict . && uv run --locked pytest -q) || exit 1; \
+	done
 
 mutate: ## Mutation testing of core (slow; CI runs it nightly)
 	uv run mutmut run

@@ -25,6 +25,8 @@ pull request then shows the policy change as a diff.
 | Methods per class, private included | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 15 |
 | Module names that say nothing (`utils`, `helpers`, `common`, `misc`, `manager`, `base`) | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | banned |
 | Lines per test module and test function | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 700, 40 |
+| The same size, function, class and name limits for `bench/` | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | as above |
+| Benchmark runners: strict mypy and offline tests, per project | CI job `bench` | `bench/*/pyproject.toml` | clean |
 | `# pragma: no mutate` without a written reason | `tests/test_code_quality.py` | | banned |
 | Packages used only through their `__init__` from outside | `tests/test_code_quality.py` | `allowed_internal_imports` | exceptions listed with a reason |
 | Duplicate code (6+ similar lines) | pylint `duplicate-code` only | `[tool.pylint]` | none |

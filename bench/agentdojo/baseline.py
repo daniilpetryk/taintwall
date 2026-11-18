@@ -9,7 +9,8 @@ taintwall runtime is later compared against.
 Every model call goes through ``bench_common.metering.MeteredClient``: a disk
 cache by request hash (reruns are free), usage and cost per call in
 ``usage.jsonl``, and a hard ``--max-cost`` ceiling. Rates come with a 95%
-Wilson interval.
+Wilson interval. The summary and every pair's scores are written to
+``bench/results/`` (committed); transcripts and the cache stay in ``runs/``.
 
 Usage (from the repo root)::
 
@@ -41,10 +42,12 @@ from agentdojo.logging import OutputLogger
 from agentdojo.models import MODEL_NAMES
 from agentdojo.task_suite.load_suites import get_suite
 from bench_common.metering import MeteredClient, openrouter_client, prose_name, stop_reason
+from bench_common.results import export
 from bench_common.stats import rate_summary
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
+RESULTS = REPO / "bench" / "results" / "agentdojo"
 BENCHMARK_VERSION = "v1.2.2"
 
 
@@ -60,8 +63,8 @@ def build_pipeline(client: MeteredClient, model: str) -> AgentPipeline:
     return pipeline
 
 
-def main() -> int:
-    """Run the baseline and write ``runs/<name>/summary-<mode>.json``."""
+def parse_args() -> argparse.Namespace:
+    """Command-line options."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--model", default="anthropic/claude-haiku-5.5")
     parser.add_argument("--suite", default="banking")
@@ -71,8 +74,12 @@ def main() -> int:
     parser.add_argument("--injection-tasks", nargs="*", default=None)
     parser.add_argument("--max-cost", type=float, default=0.5, help="USD ceiling for this run")
     parser.add_argument("--run-name", default="baseline")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def main() -> int:
+    """Run the baseline; write the summary and per-pair scores to ``bench/results``."""
+    args = parse_args()
     run_dir = HERE / "runs" / args.run_name
     client = MeteredClient(openrouter_client(REPO / ".env"), run_dir, args.max_cost)
     pipeline = build_pipeline(client, args.model)
@@ -96,8 +103,11 @@ def main() -> int:
 
     summary["meter"] = dataclasses.asdict(client.meter)
     suffix = args.mode if args.mode == "utility" else f"{args.mode}-{args.attack}"
-    summary_file = run_dir / f"summary-{suffix}.json"
-    summary_file.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    out = RESULTS / args.run_name / f"summary-{suffix}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    # One log tree holds every attack of this run; rows carry the attack name.
+    export(logdir, out.with_name("pairs.jsonl"))
     print(json.dumps(summary, indent=2))  # noqa: T201 - CLI output
     return 1 if "stopped" in summary else 0
 

@@ -107,7 +107,7 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 ## Roadmap
 
 - [x] Design, threat model and 13 design decisions
-- [ ] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
+- [x] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
   - [x] Repo skeleton, CI and quality gates
   - [x] CrAIBench review ([`docs/craibench-review.md`](docs/craibench-review.md))
   - [x] Baselines with Haiku 5.5 ([`docs/baselines.md`](docs/baselines.md)): prompt-injection ASR 0–4% on AgentDojo banking and CrAIBench, **memory-injection ASR 48–67%** on CrAIBench; $1.23 in total

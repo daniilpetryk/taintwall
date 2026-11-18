@@ -1,0 +1,42 @@
+{
+  "model": "anthropic/claude-haiku-5.5",
+  "version": "v1",
+  "suites": {
+    "chain": {
+      "utility": {
+        "rate": 0.8125,
+        "successes": 26,
+        "total": 32,
+        "ci95_low": 0.6469084479862404,
+        "ci95_high": 0.9111045531043405
+      }
+    },
+    "dao_nft": {
+      "utility": {
+        "rate": 0.9,
+        "successes": 36,
+        "total": 40,
+        "ci95_low": 0.7694822477247771,
+        "ci95_high": 0.9604204713173936
+      }
+    },
+    "crypto_trading": {
+      "utility": {
+        "rate": 0.7872340425531915,
+        "successes": 74,
+        "total": 94,
+        "ci95_low": 0.6940820730069563,
+        "ci95_high": 0.8578312023149222
+      }
+    }
+  },
+  "meter": {
+    "calls": 0,
+    "cache_hits": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cached_tokens": 0,
+    "cost": 0
+  },
+  "runs": []
+}
