@@ -24,6 +24,7 @@ Repository = "https://github.com/daniilpetryk/taintwall"
 [dependency-groups]
 dev = [
     "deptry>=0.25",
+    "hypothesis>=6.170",
     "import-linter>=2.16",
     "mypy>=2.4",
     "pip-audit>=2.10.1",
@@ -162,6 +163,14 @@ name = "Core (labels, interpreter) depends on no integration layer"
 type = "forbidden"
 source_modules = ["taintwall.core"]
 forbidden_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
+
+[[tool.importlinter.contracts]]
+# Allowlist, not denylist: a new subpackage cannot import the mint by default.
+# The capability token itself is guarded by tests/test_architecture.py.
+name = "Only core, policy and store can mint trusted provenance"
+type = "protected"
+protected_modules = ["taintwall.core.mint"]
+allowed_importers = ["taintwall.core", "taintwall.policy", "taintwall.store"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
