@@ -49,3 +49,10 @@ Each pair can run through two channels (prompt injection in tool output, and CrA
   Python 3.12 and turns that lock file into uv `constraint-dependencies`.
 - Its OpenAI SDK (1.31) returns usage details as untyped extras, which broke
   our cost metering until it read usage as plain data (`bench/common`).
+- Its resume check never finds finished results: logs are written under
+  `<model>/<system message>/<suite>/…` (memory runs with a
+  `_memory_injection` suffix) but looked up under `<model>/<suite>/…`. Every
+  rerun repeats every pair; our runner reads results itself.
+- Like AgentDojo, it scores a context-length or server error as
+  `security=True`; our client turns provider errors into an error neither
+  catches.

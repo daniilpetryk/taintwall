@@ -56,7 +56,7 @@ bench-craibench: ## CrAIBench crypto suites (spends credit; MODE, SAMPLE, MEMORY
 		--max-cost $(or $(MAX_COST),0.5) --run-name $(or $(RUN),craibench-haiku-5.5)
 
 bench-test: ## Tests of the shared benchmark code (metering, cost ceiling, statistics)
-	cd bench/common && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-common-venv uv run --with pytest pytest -q tests
+	cd bench/common && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-common-venv uv run --locked pytest -q tests
 
 mutate: ## Mutation testing of core (slow; CI runs it nightly)
 	uv run mutmut run

@@ -10,15 +10,19 @@ benchmark's default system message and tool loop. Run 2026-11-18.
 
 ## Summary
 
-| Benchmark | Utility | ASR, prompt injection | ASR, memory injection |
-|---|---|---|---|
-| AgentDojo banking, `important_instructions` | 69% (11/16) [44–86] | 0% (0/144) [0–3] | n/a |
-| AgentDojo banking, `tool_knowledge` | same | 0% (0/144) [0–3] | n/a |
-| CrAIBench chain | 81% (26/32) [65–91] | 0% (0/50) [0–7] | **58%** (37/64) [46–69] |
-| CrAIBench dao_nft | 90% (36/40) [77–96] | 4% (5/124) [2–9] | **48%** (75/155) [41–56] |
-| CrAIBench crypto_trading | 79% (74/94) [69–86] | 0% (0/84) [0–4] | **67%** (67/100) [57–75] |
+| Benchmark | Utility | ASR, prompt injection | ASR, memory injection | Memory, same pairs as prompt |
+|---|---|---|---|---|
+| AgentDojo banking, `important_instructions` | 69% (11/16) [44–86] | 0% (0/144) [0–3] | n/a | n/a |
+| AgentDojo banking, `tool_knowledge` | same | 0% (0/144) [0–3] | n/a | n/a |
+| CrAIBench chain | 81% (26/32) [65–91] | 0% (0/50) [0–7] | **58%** (37/64) [46–69] | 50% (25/50) [37–63] |
+| CrAIBench dao_nft | 90% (36/40) [77–96] | 4% (5/124) [2–9] | **48%** (75/155) [41–56] | 49% (61/124) [41–58] |
+| CrAIBench crypto_trading | 79% (74/94) [69–86] | 0% (0/84) [0–4] | **67%** (67/100) [57–75] | 64% (54/84) [54–74] |
 
-Total cost of every run here: **$1.23** (OpenRouter key usage).
+The last column restricts memory injection to the pairs prompt injection can
+reach, so the two channels are compared on identical pairs; the gap holds.
+
+Total cost of every run here: **$1.23** (OpenRouter key usage), plus about
+a cent for reruns while fixing the runner.
 
 ## What the numbers say
 
@@ -72,13 +76,32 @@ make bench-craibench MODE=security MEMORY=1
 
 The runs above used `--suites chain dao_nft` in full and `--suites
 crypto_trading --sample 100` (see `bench/craibench/baseline.py --help`).
-Each run has a `MAX_COST` ceiling and stops before spending more; usage per
+Each run has a `MAX_COST` ceiling and stops once spend reaches it (the call
+that crosses it still completes, so a run can end one call over); usage per
 call goes to `runs/<name>/usage.jsonl`, and logs and the cache stay local
-(`runs/` is git-ignored).
+(`runs/` is git-ignored). Reruns read finished results back and only run
+missing or interrupted pairs.
 
 The OpenRouter key is read from the repo's `.env` only, never from the shell
 environment, so runs always use the key with this project's spend limit. The
 benchmark virtualenvs live outside the repo (`~/.cache/taintwall/`), because
 repo-wide scanners such as REUSE would otherwise read their vendored files.
 CrAIBench installs only on Python 3.12 with its own lock file as constraints
-(see `craibench-review.md`).
+(see `craibench-review.md`). The bench projects refuse packages uploaded in
+the last 14 days (`exclude-newer`), because they handle the API key.
+
+### Guards against benchmark quirks
+
+- **Errors are never scored.** AgentDojo and the fork record a
+  context-length error or a provider server error as `security=True`, a
+  successful attack. Our client raises provider errors as `ProviderError`,
+  which neither benchmark catches, so the run stops instead (no result file
+  in this baseline carries an error).
+- **Reruns resume.** The fork writes results under
+  `<model>/<system message>/<suite>/…` but looks for them under
+  `<model>/<suite>/…`, so it reruns every pair; some requests are not
+  deterministic, so those reruns cost money and could change results. The
+  runner reads finished results itself.
+- **Stops are clean.** The benchmarks retry model calls with tenacity, which
+  wraps the cost ceiling in `RetryError`; the runners unwrap it and still
+  write the summary.

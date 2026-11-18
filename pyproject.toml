@@ -49,6 +49,9 @@ build-backend = "uv_build"
 
 [tool.uv]
 required-version = ">=0.13.7,<0.14"
+# Supply-chain cooldown, the same as Dependabot's: a plain `uv lock` never
+# picks a release younger than this. The bench projects use 14 days.
+exclude-newer = "7 days"
 
 # --- ruff: linter + formatter ---------------------------------------------
 

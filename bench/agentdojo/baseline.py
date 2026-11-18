@@ -40,7 +40,7 @@ from agentdojo.benchmark import (
 from agentdojo.logging import OutputLogger
 from agentdojo.models import MODEL_NAMES
 from agentdojo.task_suite.load_suites import get_suite
-from bench_common.metering import CostCeilingError, MeteredClient, openrouter_client
+from bench_common.metering import MeteredClient, openrouter_client, prose_name, stop_reason
 from bench_common.stats import rate_summary
 
 HERE = Path(__file__).resolve().parent
@@ -56,7 +56,7 @@ def build_pipeline(client: MeteredClient, model: str) -> AgentPipeline:
     pipeline = AgentPipeline([system, InitQuery(), llm, tools_loop])
     pipeline.name = model.rsplit("/", 1)[-1]
     # The important_instructions attack addresses the model by name.
-    MODEL_NAMES.setdefault(pipeline.name, "Claude")
+    MODEL_NAMES.setdefault(pipeline.name, prose_name(model))
     return pipeline
 
 
@@ -88,8 +88,11 @@ def main() -> int:
     try:
         with OutputLogger(str(logdir)):
             run_modes(args, pipeline, suite, logdir, summary)
-    except CostCeilingError as err:
-        summary["stopped"] = str(err)
+    except Exception as err:
+        reason = stop_reason(err)
+        if reason is None:
+            raise
+        summary["stopped"] = reason
 
     summary["meter"] = dataclasses.asdict(client.meter)
     suffix = args.mode if args.mode == "utility" else f"{args.mode}-{args.attack}"

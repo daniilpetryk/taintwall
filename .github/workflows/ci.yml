@@ -43,7 +43,7 @@ jobs:
           HYPOTHESIS_PROFILE: ci
       # The benchmark meter guards real spend (cost ceiling), so it is tested too.
       - name: bench metering tests
-        run: uv run --locked --directory bench/common --with pytest pytest -q tests
+        run: uv run --locked --directory bench/common pytest -q tests
       # Every line a pull request adds or changes must be covered by a test.
       - name: diff coverage
         if: github.event_name == 'pull_request'
