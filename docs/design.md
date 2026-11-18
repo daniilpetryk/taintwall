@@ -259,5 +259,5 @@ Target **~$40–65 for the whole project**, minimal option under $30 (Haiku 5.5 
 - Utility loss is expected and is part of the result, not a failure.
 
 ## Next steps
-- Stage 0: repo skeleton, baseline on AgentDojo banking + Haiku 5.5, and a read of the CrAIBench repo.
+- Stage 0: repo skeleton, baseline on AgentDojo banking + Haiku 5.5, and a read of the CrAIBench repo. **Outcome (2026-11-18):** banking baseline done ([baselines.md](baselines.md)): utility 69%, ASR 0% with `important_instructions`, $0.17 for the whole suite. Haiku 5.5 already refuses the standard attack, so the comparison needs stronger attacks, CrAIBench and a weaker second model.
 - Before stage 1: read the `taintguard` package and note how this project differs.

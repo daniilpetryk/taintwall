@@ -108,6 +108,10 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 
 - [x] Design, threat model and 13 design decisions
 - [ ] **0** Repo skeleton, baseline agent on AgentDojo banking, CrAIBench review
+  - [x] Repo skeleton, CI and quality gates
+  - [x] CrAIBench review ([`docs/craibench-review.md`](docs/craibench-review.md))
+  - [x] Banking baseline, Haiku 5.5: utility 69%, ASR 0% for $0.17 ([`docs/baselines.md`](docs/baselines.md))
+  - [ ] Attacks and models where the plain agent fails, so a defense has something to remove
 - [ ] **1** Interpreter with `Labeled[T]`, principals and readers
   - [x] Provenance labels: sources, readers, principals, join, category collapse
   - [x] Interpreter: explicit flows, limits, typed errors
@@ -200,7 +204,7 @@ src/taintwall/
   tools/     tool registry, MCP adapter
   web3/      chain tools, anvil simulation, effect accounting
 signer/      Go signing service
-bench/       AgentDojo, CrAIBench and own anvil task suites (planned)
+bench/       benchmark runs: agentdojo/ (baseline done), CrAIBench and own anvil suites (planned)
 viewer/      provenance graph UI (planned)
 docker/      Dockerfiles for signer, app and dev toolbox
 docs/        design and architecture

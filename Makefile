@@ -8,7 +8,7 @@ HADOLINT  := $(call tool_image,hadolint)
 GRYPE     := $(call tool_image,grype)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint test check cov diff-cov mutate audit hooks \
+.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline audit hooks \
         py-lint py-test go-lint go-test lint-docker \
         docker-build docker-check scan scan-images clean
 
@@ -40,6 +40,14 @@ diff-cov: ## Changed lines vs origin/dev must be 100% covered (as CI does)
 	git fetch -q origin dev
 	uv run pytest -q --cov --cov-report=xml
 	uv run diff-cover coverage.xml --compare-branch=origin/dev --fail-under=100
+
+# The benchmark projects keep their virtualenvs outside the repo: REUSE and
+# other repo-wide scanners would otherwise read thousands of vendored files.
+BENCH_ENV ?= $(HOME)/.cache/taintwall/bench-agentdojo-venv
+
+bench-baseline: ## AgentDojo banking baseline (spends OpenRouter credit; ceiling MAX_COST, default 1.0)
+	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_ENV) uv run python baseline.py \
+		--mode all --max-cost $(or $(MAX_COST),1.0) --run-name $(or $(RUN),banking-haiku-5.5)
 
 mutate: ## Mutation testing of core (slow; CI runs it nightly)
 	uv run mutmut run
