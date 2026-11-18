@@ -12,6 +12,7 @@ from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import (
     EventKind,
     Interpreter,
+    InvalidLimitError,
     InvalidRequesterError,
     Limits,
     RunResult,
@@ -19,6 +20,7 @@ from taintwall.core.interpreter import (
     ToolNameClashError,
     TraceEvent,
 )
+from taintwall.core.labels import MAX_VALUE_DEPTH
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
 from taintwall.core.values import Record
@@ -464,6 +466,46 @@ class TestRoundTwo:
     @pytest.mark.parametrize("source", ["x = -True", "x = +'a'", "x = -(1,)"])
     def test_unary_arithmetic_is_numbers_only(self, source: str) -> None:
         assert error(source).code is PlanErrorCode.TYPE_MISMATCH
+
+
+class TestRoundThree:
+    """Regression tests for review round 3."""
+
+    @pytest.mark.parametrize("expression", ["a == a", "max(a)", "a"])
+    def test_nesting_across_labeled_values_is_bounded(self, expression: str) -> None:
+        # Each (a,) wraps a Labeled value, which Labeled does not re-scan.
+        source = "a = (1,)\n" + "a = (a,)\n" + "a = (a,)\n" * 100 + f"x = {expression}"
+        assert error(source).code is PlanErrorCode.VALUE_TOO_LARGE
+
+    def test_nesting_through_records_is_bounded(self) -> None:
+        source = "a = {'f': 1}\n" + "a = {'f': a}\n" * 100
+        assert error(source).code is PlanErrorCode.VALUE_TOO_LARGE
+
+    def test_nesting_up_to_the_limit_is_allowed(self) -> None:
+        source = "a = (1,)\n" + "a = (a,)\n" * (MAX_VALUE_DEPTH - 1)
+        assert var(source, "a").label == Label.of(MINT.plan(), OWNER)
+
+    def test_shared_elements_are_measured_once(self) -> None:
+        # 60 levels, each holding the previous one twice: 2**60 paths.
+        source = "a = (1,)\n" + "a = (a, a)\n" * 60
+        assert run(source).variables["a"] is not None
+
+    @pytest.mark.parametrize("name", ["len", "get_balance"])
+    def test_variables_cannot_shadow_calls(self, name: str) -> None:
+        err = error(f"{name} = 1")
+        assert err.code is PlanErrorCode.UNSUPPORTED
+        assert err.detail == name
+
+    @pytest.mark.parametrize(
+        "limits",
+        [{"max_steps": 0}, {"max_visits": -1}, {"max_items": True}, {"max_string": 1.5}],
+    )
+    def test_limits_must_be_positive_integers(self, limits: dict[str, object]) -> None:
+        with pytest.raises(InvalidLimitError):
+            Limits(**limits)  # type: ignore[arg-type]
+
+    def test_lines_are_never_zero(self) -> None:
+        assert all(event.line for event in run("a = 1\nb = a + 1").trace)
 
 
 class TestTrace:

@@ -36,6 +36,8 @@ def test_accepts_the_design_example() -> None:
         "x = a < b <= c and not d or e in f and g not in h",
         "x = tool(1, key=2)",
         "x = None",
+        "x = '\u043f\u0440\u0438\u0432\u0435\u0442 \uff21'",
+        "x = f'\u00e9{a}'",
     ],
 )
 def test_accepts_the_language(source: str) -> None:
@@ -85,6 +87,10 @@ def test_accepts_the_language(source: str) -> None:
         "x = f(**kwargs)",
         "x = f(_internal=1)",
         "x = f(__class__=1)",
+        "\uff58 = 1",
+        "x = \uff52\uff45\uff41\uff44_file()",
+        "x = r.\u0430mount",
+        "x = f(\u0430mount=1)",
         "x = (y := 1)",
         "x = {1: 2}",
         "x = {a: 2}",

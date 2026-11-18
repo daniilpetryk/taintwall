@@ -39,6 +39,7 @@ from typing import Final
 
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.labels import (
+    MAX_VALUE_DEPTH,
     Label,
     Labeled,
     MutableValueError,
@@ -83,6 +84,12 @@ class Limits:
     has a million elements to read; this budget bounds the reading.
     """
 
+    def __post_init__(self) -> None:
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name)
+            if type(value) is not int or value <= 0:
+                raise InvalidLimitError(field.name)
+
 
 class EventKind(enum.StrEnum):
     """What produced a value in the trace."""
@@ -106,7 +113,7 @@ class TraceEvent:
 
     value_id: int
     kind: EventKind
-    line: int
+    line: int | None
     detail: str
     inputs: tuple[int, ...]
     label: Label
@@ -119,6 +126,13 @@ class RunResult:
     variables: Mapping[str, Labeled[object]]
     trace: tuple[TraceEvent, ...]
     steps: int
+
+
+class InvalidLimitError(ValueError):
+    """A limit is not a positive integer."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"limit {name} must be a positive integer")
 
 
 class InvalidRequesterError(ValueError):
@@ -218,8 +232,20 @@ def _truthy(value: object) -> bool:
     return bool(value)
 
 
-def _line(node: ast.AST) -> int:
-    return int(getattr(node, "lineno", 0))
+def _children(value: object) -> tuple[object, ...]:
+    """Values directly inside a plan value."""
+    if isinstance(value, Labeled):
+        return (value.value,)
+    if type(value) is tuple:
+        return value
+    if isinstance(value, Record):
+        return tuple(field for _, field in value.fields)
+    return ()
+
+
+def _line(node: ast.AST) -> int | None:
+    line = getattr(node, "lineno", None)
+    return line if type(line) is int else None
 
 
 class _Run:
@@ -246,6 +272,9 @@ class _Run:
         if isinstance(node, ast.Assign):
             target = node.targets[0]
             assert isinstance(target, ast.Name)  # noqa: S101 - parse_plan guarantees it
+            if target.id in self._tools or target.id in BUILTINS:
+                # One name, one meaning: a variable may not look like a call.
+                raise PlanError(PlanErrorCode.UNSUPPORTED, _line(node), target.id)
             value, value_id = self.expr(node.value)
             self._event(value_id, EventKind.ASSIGN, node, target.id, (value_id,), value.label)
             self._variables[target.id] = (value, value_id)
@@ -458,6 +487,7 @@ class _Run:
         items = [self.expr(item) for item in node.elts]
         value = tuple(ref[0] for ref in items)
         inputs = tuple(ref[1] for ref in items)
+        self._check_nesting(value, node)
         # The structure is the plan's; each element keeps its own label.
         return self._new(value, self._literal_label, EventKind.BUILD, node, "sequence", inputs)
 
@@ -469,6 +499,7 @@ class _Run:
             record = Record.of(dict(zip(names, (ref[0] for ref in items), strict=True)))
         except (ValueError, TypeError):
             raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node), "record") from None
+        self._check_nesting(record, node)
         inputs = tuple(ref[1] for ref in items)
         return self._new(record, self._literal_label, EventKind.BUILD, node, "record", inputs)
 
@@ -536,6 +567,32 @@ class _Run:
             raise PlanError(PlanErrorCode.VALUE_TOO_LARGE, _line(node)) from None
         except (TypeError, ValueError):
             raise PlanError(PlanErrorCode.TYPE_MISMATCH, _line(node)) from None
+
+    def _check_nesting(self, value: object, node: ast.AST) -> None:
+        """Reject a container nested deeper than ``MAX_VALUE_DEPTH``.
+
+        ``Labeled`` checks depth only up to the next nested ``Labeled`` value,
+        so ``a = (a,)`` repeated would grow without bound and later overflow
+        the stack in comparisons. Only building tuples and records adds a
+        level, so this runs there. Shared elements are measured once.
+        """
+        depths: dict[int, int] = {}
+        pending: list[tuple[object, bool]] = [(value, False)]
+        while pending:
+            item, ready = pending.pop()
+            if id(item) in depths:
+                continue
+            children = _children(item)
+            if ready or not children:
+                level = int(type(item) is tuple or isinstance(item, Record))
+                depth = level + max((depths[id(child)] for child in children), default=0)
+                if depth > MAX_VALUE_DEPTH:
+                    raise PlanError(PlanErrorCode.VALUE_TOO_LARGE, _line(node))
+                depths[id(item)] = depth
+                continue
+            self._visit(node)
+            pending.append((item, True))
+            pending.extend((child, False) for child in children if id(child) not in depths)
 
     def _check_length(self, length: int, node: ast.AST) -> None:
         """Reject a string length before the string is built."""

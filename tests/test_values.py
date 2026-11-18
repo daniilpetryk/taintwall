@@ -22,6 +22,16 @@ def test_get_returns_none_for_missing_fields() -> None:
     record = Record.of({"a": Labeled(1, TOOL)})
     assert record.get("a") == Labeled(1, TOOL)
     assert record.get("z") is None
+    assert record.get("") is None
+
+
+def test_get_finds_every_field_of_a_large_record() -> None:
+    names = [f"f{i}" for i in range(500)]
+    record = Record.of({name: Labeled(i, TOOL) for i, name in enumerate(names)})
+    assert all(record.get(name) == Labeled(i, TOOL) for i, name in enumerate(names))
+    assert record.get("f") is None
+    assert record.get("g") is None
+    assert Record.of({}).get("a") is None
 
 
 @pytest.mark.parametrize("name", ["", "A", "1a", "_a", "a-b", "a" * 65, "é"])

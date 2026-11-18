@@ -8,6 +8,7 @@ the record itself, so a trusted balance and an untrusted token name returned
 together stay apart until a plan combines them.
 """
 
+import bisect
 import dataclasses
 import re
 from collections.abc import Mapping
@@ -60,9 +61,10 @@ class Record:
 
     def get(self, name: str) -> Labeled[object] | None:
         """The field called ``name``, or ``None`` if there is no such field."""
-        for field_name, value in self.fields:
-            if field_name == name:
-                return value
+        # Fields are sorted by name, so a binary search finds one.
+        position = bisect.bisect_left(self.fields, name, key=lambda item: item[0])
+        if position < len(self.fields) and self.fields[position][0] == name:
+            return self.fields[position][1]
         return None
 
     @property

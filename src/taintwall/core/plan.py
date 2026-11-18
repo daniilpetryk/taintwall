@@ -14,6 +14,8 @@ the other control-flow constructs arrive with implicit-flow tracking.
 
 import ast
 import dataclasses
+import io
+import tokenize
 from collections.abc import Callable
 from typing import Final
 
@@ -95,6 +97,7 @@ def parse_plan(source: str) -> Plan:
     except (MemoryError, RecursionError):
         # CPython's parser gives up on very deep nesting before our check.
         raise PlanError(PlanErrorCode.TOO_DEEP) from None
+    _check_ascii_names(source)
     _check_depth(tree)
     for node in ast.walk(tree):
         _check_node(node)
@@ -130,8 +133,25 @@ def _check_assign(node: ast.AST) -> None:
 
 def _check_name(node: ast.AST) -> None:
     name = node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
+    _check_identifier(node, name)
+
+
+def _check_identifier(node: ast.AST, name: str) -> None:
     if name.startswith("_"):
         raise _unsupported(node, "private name")
+
+
+def _check_ascii_names(source: str) -> None:
+    """Reject identifiers that are not ASCII in the source text.
+
+    Python folds identifiers with NFKC before the syntax tree exists, so a
+    fullwidth or look-alike name would run as a different name than the one
+    an approver reads. Strings may hold any text; names may not.
+    """
+    tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+    for token in tokens:
+        if token.type == tokenize.NAME and not token.string.isascii():
+            raise PlanError(PlanErrorCode.UNSUPPORTED, token.start[0], "non-ascii name")
 
 
 def _check_constant(node: ast.AST) -> None:
@@ -153,8 +173,9 @@ def _check_call(node: ast.AST) -> None:
         raise _unsupported(node, "star argument")
     if any(keyword.arg is None for keyword in node.keywords):
         raise _unsupported(node, "keyword unpacking")
-    if any(keyword.arg.startswith("_") for keyword in node.keywords if keyword.arg):
-        raise _unsupported(node, "private name")
+    for keyword in node.keywords:
+        if keyword.arg is not None:
+            _check_identifier(node, keyword.arg)
 
 
 def _check_dict(node: ast.AST) -> None:
