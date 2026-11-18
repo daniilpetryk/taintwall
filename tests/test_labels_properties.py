@@ -12,7 +12,9 @@ import json
 from hypothesis import given
 from hypothesis import strategies as st
 
-from taintwall.core import (
+from taintwall.core.labels import (
+    MAX_SOURCES_PER_KIND,
+    TRUSTED_KINDS,
     EmptyLabelError,
     InvalidKindError,
     InvalidReadersError,
@@ -24,8 +26,8 @@ from taintwall.core import (
     Readers,
     Source,
     SourceKind,
+    UnmintedSourceError,
 )
-from taintwall.core.labels import MAX_SOURCES_PER_KIND, TRUSTED_KINDS, UnmintedSourceError
 from taintwall.core.mint import Mint
 
 MINT = Mint()

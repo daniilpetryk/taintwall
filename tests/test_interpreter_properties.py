@@ -21,9 +21,9 @@ from collections.abc import Mapping
 from hypothesis import given
 from hypothesis import strategies as st
 
-from taintwall.core import Label, Labeled, Source, join_all
 from taintwall.core.errors import PlanError
 from taintwall.core.interpreter import EventKind, Interpreter, RunResult, Tool
+from taintwall.core.labels import Label, Labeled, Source, join_all
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
 from taintwall.core.values import Record

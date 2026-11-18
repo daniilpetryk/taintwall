@@ -147,7 +147,7 @@ Other targets: `make cov` (coverage), `make hooks` (all pre-commit hooks), `make
 
 **Architecture contracts.** `lint-imports` (Import Linter) enforces security invariants of the design as import rules: the policy engine never imports the LLM layer, the LLM layer cannot reach tools, the chain or the store, and the core depends on no integration layer. Layer contracts fix the dependency direction inside `core`, `core.interpreter` and `core.labels`.
 
-**Clean-code gates.** CI fails on complexity above 8, more than 5 arguments, modules over 300 lines, functions over 40 lines, classes over 15 methods, modules named `utils` or `helpers`, and branch coverage under 95%. Every limit is a number in `pyproject.toml`; [`docs/code-quality.md`](docs/code-quality.md) lists each gate, where it lives, and the layer map.
+**Clean-code gates.** CI fails on complexity above 8, more than 5 arguments, modules over 300 lines, functions over 40 lines, classes over 15 methods, modules named `utils` or `helpers`, imports into another package's internals, duplicate code, branch coverage under 95%, and any changed line without a test. Mutation testing of the core runs nightly with a score floor. Every limit is a number in `pyproject.toml`; [`docs/code-quality.md`](docs/code-quality.md) lists each gate, where it lives, and the layer map.
 
 **Licensing.** The repo is [REUSE](https://reuse.software) compliant: `REUSE.toml` plus SPDX headers give every file a machine-readable license, checked on every commit.
 

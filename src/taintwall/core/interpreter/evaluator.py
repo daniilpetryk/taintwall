@@ -83,6 +83,9 @@ class Evaluator:
             self._variables[target.id] = ref
         elif isinstance(node, ast.Expr):
             self.expr(node.value)
+        else:
+            # parse_plan admits nothing else; fail closed if that ever changes.
+            raise error_at(PlanErrorCode.UNSUPPORTED, node, type(node).__name__)
 
     def expr(self, node: ast.expr) -> Ref:
         """Evaluate one expression."""

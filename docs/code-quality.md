@@ -1,8 +1,9 @@
 # Code quality gates
 
 Every rule here runs in CI on every pull request, inside the required checks
-(`python 3.13`, `python 3.14`, `hooks`). Nothing depends on a reviewer
-remembering it. To change a limit, edit the number in `pyproject.toml`; the
+(`python 3.13`, `python 3.14`, `hooks`), except mutation testing, which runs
+nightly. Nothing depends on a reviewer remembering it; what only a reader can
+judge is the checklist in `.github/pull_request_template.md`. To change a limit, edit the number in `pyproject.toml`; the
 pull request then shows the policy change as a diff.
 
 ## Where each rule lives
@@ -23,10 +24,15 @@ pull request then shows the policy change as a diff.
 | Lines per function, docstring included | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 40 |
 | Methods per class, private included | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 15 |
 | Module names that say nothing (`utils`, `helpers`, `common`, `misc`, `manager`, `base`) | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | banned |
+| Lines per test module and test function | `tests/test_code_quality.py` | `[tool.taintwall.quality]` | 700, 40 |
+| Packages used only through their `__init__` from outside | `tests/test_code_quality.py` | `allowed_internal_imports` | exceptions listed with a reason |
+| Duplicate code (6+ similar lines) | pylint `duplicate-code` only | `[tool.pylint]` | none |
 | Layering inside packages | Import Linter `layers` | `[tool.importlinter]` | see below |
 | No import cycles between siblings | Import Linter `acyclic_siblings` | `[tool.importlinter]` | none |
 | Security boundaries (LLM, tools, chain, mint) | Import Linter `forbidden`, `protected` | `[tool.importlinter]` | see design.md |
-| Branch coverage | pytest-cov | `[tool.coverage.report] fail_under` | 95% |
+| Branch coverage, whole project | pytest-cov | `[tool.coverage.report] fail_under` | 95% |
+| Coverage of lines a pull request adds or changes | diff-cover | `.github/workflows/ci.yml` | 100% |
+| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 90% |
 | Types | mypy strict + Pyrefly | `[tool.mypy]`, `[tool.pyrefly]` | both clean |
 | Unused or undeclared dependencies | deptry | `[tool.deptry]` | none |
 
@@ -35,8 +41,11 @@ ruff upgrade cannot switch on new preview rules silently. The ruff version is
 pinned in `uv.lock`.
 
 Tests are exempt from the method-count rules: a test class groups related
-tests and may hold many. They still pass every other ruff rule and both type
-checkers.
+tests and may hold many. They have their own size limits and pass every other
+ruff rule and both type checkers.
+
+Local equivalents: `make check` (everything per pull request), `make diff-cov`
+(changed lines against `origin/dev`), `make mutate` (mutation testing, slow).
 
 ## Layers
 
@@ -72,6 +81,28 @@ Handlers depend on the `Context` protocol rather than on the evaluator
 (dependency inversion). That is what lets the evaluator import them for its
 dispatch table without a cycle.
 
+## Contract tests
+
+Mutation testing showed that checking error codes alone is not enough, so two
+test modules pin the contracts other stages depend on:
+
+- `tests/test_error_contract.py`: exact code, line and detail of every typed
+  error (the planner retries from these alone, Q3), and every limit tested one
+  value inside and one outside.
+- `tests/test_trace_contract.py`: one exact trace event per syntax node (kind,
+  line, detail, inputs), which the viewer and later policies read.
+
+Surviving mutants that remain are mostly error-message wording and
+equivalent mutants (a change no behavior can observe). Raise the floor when
+the score rises.
+
+## One import path per name
+
+`taintwall.core` re-exports nothing. Import each name from the package that
+owns it, through that package's `__init__`: `taintwall.core.labels`,
+`taintwall.core.interpreter`, and the modules `plan`, `values`, `errors` and
+`mint`. The encapsulation check keeps outside code out of package internals.
+
 ## Design principles behind the limits
 
 - **One responsibility per module.** A module's docstring says what it holds;
@@ -93,7 +124,10 @@ dispatch table without a cycle.
 Every exception is a line in `pyproject.toml` with its reason:
 
 - `src/taintwall/core/mint.py`: `PLC2701` (it is the one place allowed to use
-  the private capability token) and `PLR6301` (holding a `Mint` instance is
-  the capability, so its methods stay instance methods).
+  the private capability token), `PLR6301` (holding a `Mint` instance is the
+  capability, so its methods stay instance methods), and two internal imports
+  of `taintwall.core.labels` modules, which hold the token.
+- Mutation runs skip `tests/test_code_quality.py` and `tests/test_architecture.py`:
+  they read source files and would see mutmut's instrumented copies.
 - `tests/**`: assertions, magic values, private helpers, test classes with
   many methods, and no docstrings (test names are the documentation).
