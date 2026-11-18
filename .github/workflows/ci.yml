@@ -37,6 +37,8 @@ jobs:
       - run: uv run lint-imports
       - run: uv run deptry src
       - run: uv run pytest --cov --cov-report=term
+        env:
+          HYPOTHESIS_PROFILE: ci
 
   go:
     name: go

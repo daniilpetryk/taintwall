@@ -35,3 +35,6 @@ bench/**/runs/
 .DS_Store
 .idea/
 .vscode/
+
+# hypothesis example database
+.hypothesis/

@@ -24,6 +24,7 @@ Repository = "https://github.com/daniilpetryk/taintwall"
 [dependency-groups]
 dev = [
     "deptry>=0.25",
+    "hypothesis>=6.170",
     "import-linter>=2.16",
     "mypy>=2.4",
     "pip-audit>=2.10.1",
