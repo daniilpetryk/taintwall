@@ -55,6 +55,8 @@ SUITES = ("chain", "dao_nft", "crypto_trading")
 
 def build_pipeline(client: MeteredClient, model: str) -> AgentPipeline:
     """The fork's undefended pipeline around ``model``."""
+    # Haiku 5.5 ignores temperature (OpenRouter drops it, see docs/design.md);
+    # it stays so requests, and therefore cache keys, match the baseline runs.
     llm = OpenAILLM(client, model, temperature=0.0)
     tools_loop = ToolsExecutionLoop([ToolsExecutor(), llm])
     system = SystemMessage(load_system_message(None))

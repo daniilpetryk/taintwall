@@ -9,7 +9,7 @@ A runtime for AI agents with a crypto wallet, protected from prompt injection **
 - **Incidents:** Freysa (2024, the agent was talked into giving away its prize pool), AIXBT (2025, ~55 ETH lost through injected prompts), memory injection in ElizaOS.
 - **Dual LLM pattern** (Simon Willison, 2023).
 - **CaMeL** (Google DeepMind and ETH, 2025, "Defeating Prompt Injections by Design"): the P-LLM writes the plan as code, an interpreter tracks capabilities, policies are checked before calls. Evaluated on AgentDojo. **This is the base design of the project.**
-- **Related work:** FIDES (Microsoft, information flow control), Progent. Also the PyPI package `taintguard` ("deterministic policy enforcement for AI agent tool calls"): read it before stage 1 and compare.
+- **Related work:** FIDES (Microsoft, information flow control), Progent. Also the PyPI package `taintguard` ("deterministic policy enforcement for AI agent tool calls"): a guard on an ordinary agent loop with text-matching provenance; compared in [`taintguard-review.md`](taintguard-review.md).
 - **CrAIBench** (Princeton, "Real AI Agents with Fake Memories", arXiv 2503.16248): web3 benchmark with 150+ blockchain tasks and 500+ attack cases, built around the ElizaOS memory-injection attack. Open source (GitHub `AthaSSiN/CrAIBench`). A web3 agent benchmark already exists, so we use it instead of claiming our own as new.
 - **CapLite** (preprint, late 2026, unreviewed): reports CaMeL plans failing to execute in up to 68% of episodes on small open-weight models. Motivates contribution D.
 - **AgentDojo benchmark:** workspace, slack, banking, travel suites; utility and security modes (user task × attacker task pairs).
@@ -244,7 +244,11 @@ taintwall/
 - **Environment:** Foundry/anvil (local mainnet fork).
 - **Signer:** Go. Later some Solidity for ERC-4337.
 - **Models:** compare several families via OpenRouter (Claude, GPT, Gemini, open-weight: Qwen, DeepSeek) to show the defense is model-independent. Cheap models for development and the main tables, strong ones only on a sample. P-LLM at medium reasoning effort, Q-LLM at low.
-- **Check at the start:** structured outputs (`response_format` with a JSON schema) and prompt caching for the chosen models via OpenRouter (depends on model and provider); how to plug an OpenAI-compatible endpoint into AgentDojo (probably via `base_url`); how CrAIBench runs its tasks.
+- **Check at the start (done in stage 0, 2026-11-18):**
+  - *Structured outputs* work for Haiku 5.5 through OpenRouter: a strict JSON schema was followed exactly, also with an injection in the document. Two of its five providers (Claude Platform on AWS, Amazon Bedrock) do not support `structured_outputs`, so requests must set `provider.require_parameters: true`; OpenRouter then routes only to providers that enforce the schema.
+  - *Sampling parameters are ignored.* No Haiku 5.5 provider accepts `temperature` or `top_p` (it is a reasoning model); without `require_parameters` OpenRouter drops them silently, and with it a request that sends them fails (404). Runs are therefore not deterministic, which is why the response cache matters.
+  - *Prompt caching* needs explicit `cache_control` breakpoints; without them nothing is cached (all stage 0 runs show `cached_tokens = 0`). With a breakpoint on a stable 10.8k-token system prompt, the first call costs 1.25× (cache write) and later calls about 10× less ($0.00109 → $0.00012). OpenRouter keeps the provider sticky, so the cache is hit. The planner and reader client (stage 2) marks the stable system prompt and tool list from the start.
+  - *AgentDojo* takes an OpenAI-compatible client (`OpenAILLM` with `base_url`), and *CrAIBench* runs the same way with its own pair lists (see `craibench-review.md`).
 
 ## Budget (keep it cheap)
 Target **~$40–65 for the whole project**, minimal option under $30 (Haiku 5.5 only).
@@ -260,4 +264,4 @@ Target **~$40–65 for the whole project**, minimal option under $30 (Haiku 5.5 
 
 ## Next steps
 - Stage 0: repo skeleton, baseline on AgentDojo banking + Haiku 5.5, and a read of the CrAIBench repo. **Outcome (2026-11-18):** banking baseline done ([baselines.md](baselines.md)): utility 69%, ASR 0% with `important_instructions`, $0.17 for the whole suite. Then `tool_knowledge` (ASR 0%) and CrAIBench: prompt-injection ASR 0–4%, but memory-injection ASR 48–67%, because the fork inserts planted "memories" as user messages. That is the headline comparison for contribution B; total spend $1.23.
-- Before stage 1: read the `taintguard` package and note how this project differs.
+- Before stage 1: read the `taintguard` package and note how this project differs. **Done:** [`taintguard-review.md`](taintguard-review.md); no decision changes, and a text-matching guard is an optional extra baseline for stage 3.
