@@ -4,7 +4,8 @@
 
 Hypothesis profiles: ``dev`` (default) keeps local runs fast, ``ci`` searches
 harder and prints a reproduction blob for every failure, since CI keeps no
-example database. CI selects it with ``HYPOTHESIS_PROFILE=ci``.
+example database, and ``deep`` searches much harder for the nightly run.
+CI selects them with ``HYPOTHESIS_PROFILE``.
 """
 
 import os
@@ -12,12 +13,20 @@ import os
 import pytest
 from hypothesis import HealthCheck, settings
 
-PROFILES = ("dev", "ci")
+PROFILES = ("dev", "ci", "deep")
 
 settings.register_profile("dev", max_examples=200)
 settings.register_profile(
     "ci",
-    max_examples=1000,
+    max_examples=500,
+    print_blob=True,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+
+settings.register_profile(
+    "deep",
+    max_examples=5000,
     print_blob=True,
     suppress_health_check=[HealthCheck.too_slow],
     deadline=None,

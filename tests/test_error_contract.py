@@ -63,7 +63,7 @@ C = PlanErrorCode
         ("x = len(1, 2)", C.BAD_ARGUMENTS, 2, "len"),
         ("x = abs(1, 2)", C.BAD_ARGUMENTS, 2, "abs"),
         ("x = len((1,), key=1)", C.BAD_ARGUMENTS, 2, "len"),
-        ("x = len(5)", C.TYPE_MISMATCH, 2, ""),
+        ("x = len(5)", C.TYPE_MISMATCH, 2, "len"),
         ("r = {'a': 1}\nx = max(((r,),))", C.TYPE_MISMATCH, 3, "max"),
         ("x = {'Bad-Key': 1}", C.TYPE_MISMATCH, 2, "record"),
         ("x = f'{(1,)}'", C.TYPE_MISMATCH, 2, "format"),

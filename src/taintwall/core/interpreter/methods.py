@@ -100,7 +100,7 @@ def _join(node: ast.Call, text: str, values: tuple[object, ...], guard: Guard) -
     return text.join(strings)
 
 
-STRING_METHODS: Final[Mapping[str, Method]] = {
+HANDLERS: Final[Mapping[str, Method]] = {
     "lower": _lower,
     "upper": _upper,
     "strip": _strip,
@@ -110,7 +110,7 @@ STRING_METHODS: Final[Mapping[str, Method]] = {
     "split": _split,
     "join": _join,
 }
-"""What each string method of ``syntax.STRING_METHODS`` does."""
+"""What each string method does; the names are ``syntax.STRING_METHODS``."""
 
 
 def call_method(
@@ -124,7 +124,7 @@ def call_method(
     value, own = unwrap(receiver, guard)
     if name == "get" and isinstance(value, Record):
         return _get(node, value, own, arguments)
-    method = STRING_METHODS.get(name)
+    method = HANDLERS.get(name)
     if method is None or type(value) is not str:
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node, name)
     plain_arguments = tuple(plain(item.value, guard) for item in arguments)

@@ -35,7 +35,8 @@ pull request then shows the policy change as a diff.
 | Security boundaries (LLM, tools, chain, mint) | Import Linter `forbidden`, `protected` | `[tool.importlinter]` | see design.md |
 | Branch coverage, whole project | pytest-cov | `[tool.coverage.report] fail_under` | 95% |
 | Coverage of lines a pull request adds or changes | diff-cover | `.github/workflows/ci.yml` | 100% |
-| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 99.9%) |
+| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 100%) |
+| Property tests (noninterference, trace coverage, label laws) | Hypothesis | `tests/conftest.py` profiles | 500 examples per PR, 5000 nightly |
 | Types | mypy strict + Pyrefly | `[tool.mypy]`, `[tool.pyrefly]` | both clean |
 | Unused or undeclared dependencies | deptry | `[tool.deptry]` | none |
 

@@ -21,9 +21,11 @@ from taintwall.core.interpreter import (
     RunResult,
     Tool,
 )
+from taintwall.core.interpreter.methods import HANDLERS
 from taintwall.core.labels import Label, Labeled, Source
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
+from taintwall.core.syntax import STRING_METHODS
 from taintwall.core.values import Record
 
 MINT = Mint()
@@ -90,6 +92,9 @@ def failure(source: str, **kwargs: object) -> LabeledPlanError:
 
 
 class TestStringMethods:
+    def test_the_parser_and_the_interpreter_know_the_same_methods(self) -> None:
+        assert set(HANDLERS) == STRING_METHODS
+
     @pytest.mark.parametrize(
         ("call", "value"),
         [
@@ -246,7 +251,8 @@ class TestBuiltins:
             ("x = int(nothing())", PlanErrorCode.TYPE_MISMATCH),
             ("x = float(nothing())", PlanErrorCode.TYPE_MISMATCH),
             ("x = int('a')", PlanErrorCode.TYPE_MISMATCH),
-            ("x = float('nan')", PlanErrorCode.VALUE_TOO_LARGE),
+            ("x = float('nan')", PlanErrorCode.TYPE_MISMATCH),
+            ("x = float('1e999')", PlanErrorCode.VALUE_TOO_LARGE),
             ("x = range('3')", PlanErrorCode.TYPE_MISMATCH),
             ("x = range(1, 2, 0)", PlanErrorCode.TYPE_MISMATCH),
             ("x = sorted(text())", PlanErrorCode.TYPE_MISMATCH),
@@ -260,6 +266,79 @@ class TestBuiltins:
     def test_misuse_is_typed(self, source: str, code: PlanErrorCode) -> None:
         assert failure(source).code is code
 
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "x = round(flag())",
+            "x = abs(flag())",
+            "x = round(1.5, flag())",
+            "x = sum((1, flag()))",
+            "x = sum(text())",
+            "x = int(flag())",
+            "x = float(flag())",
+            "x = any(text())",
+            "x = all(text())",
+            "x = int('1_000')",
+            "x = int(' 42')",
+            "x = float('1_0.5')",
+            "x = float('inf')",
+        ],
+    )
+    def test_booleans_and_loose_text_are_not_numbers(self, source: str) -> None:
+        err = failure(source)
+        assert err.code is PlanErrorCode.TYPE_MISMATCH
+        assert err.detail == source.split("=")[1].strip().split("(")[0]
+
+    @pytest.mark.parametrize(
+        ("source", "value"),
+        [
+            ("x = int('-42')", -42),
+            ("x = float('+2.5e3')", 2500.0),
+            ("x = float('.5')", 0.5),
+            ("x = float('5.')", 5.0),
+            ("x = str(flag())", "True"),
+            ("x = sum((1, 2.5))", 3.5),
+        ],
+    )
+    def test_plain_numbers_still_convert(self, source: str, value: object) -> None:
+        assert x(source).value == value
+
+    @pytest.mark.parametrize(
+        ("source", "detail"),
+        [("x = int('a')", "int"), ("x = sorted((1, 'a'))", "sorted"), ("x = min(())", "min")],
+    )
+    def test_errors_inside_a_builtin_name_it(self, source: str, detail: str) -> None:
+        assert failure(source).detail == detail
+
+    def test_max_and_min_compare_anything_comparable(self) -> None:
+        assert x("x = max((1, 2))").value == 2
+        assert x("x = min('b', 'a')").value == "a"
+
+    def test_a_large_int_still_converts_within_the_digit_limit(self) -> None:
+        # 2000 digits: the size estimate must not refuse what Python accepts.
+        source = (
+            "n = 10000000000\nm = n * n * n * n * n * n * n * n * n * n\n"
+            "k = m * m * m * m * m * m * m * m * m * m * m * m * m * m * m * m * m * m * m * m\n"
+            "x = str(k)"
+        )
+        assert len(x(source, limits=Limits(max_int_bits=10000)).value) == 2001  # type: ignore[arg-type]
+
+    def test_float_of_an_int_past_the_float_range_is_too_large(self) -> None:
+        source = (
+            "n = 10000000000\nm = n * n * n * n * n * n * n * n * n * n\n"
+            "k = m * m * m * m\nx = float(k)"
+        )
+        err = failure(source, limits=Limits(max_int_bits=2000))
+        assert (err.code, err.line, err.detail) == (PlanErrorCode.VALUE_TOO_LARGE, 4, "float")
+
+    def test_str_of_an_int_past_the_digit_limit_is_too_large(self) -> None:
+        source = (
+            "n = 10000000000\nm = n * n * n * n * n * n * n * n * n * n\n"
+            "k = m * m * m * m * m * m * m * m * m * m\nk = k * k * k * k * k\nx = str(k)"
+        )
+        err = failure(source, limits=Limits(max_int_bits=30000))
+        assert (err.code, err.detail) == (PlanErrorCode.VALUE_TOO_LARGE, "str")
+
     def test_str_of_none_is_none_like_an_f_string(self) -> None:
         assert x("x = str(nothing())").value == "None"
 
@@ -267,7 +346,7 @@ class TestBuiltins:
         # len() of a range past a C ssize_t raises OverflowError in Python.
         big = "100000000000000000000"
         err = failure(f"n = {big} * {big} * {big}\nx = range(n)")
-        assert (err.code, err.line) == (PlanErrorCode.VALUE_TOO_LARGE, 2)
+        assert (err.code, err.line, err.detail) == (PlanErrorCode.VALUE_TOO_LARGE, 2, "range")
 
     def test_a_number_too_large_for_a_fixed_point_format_is_typed(self) -> None:
         source = (
