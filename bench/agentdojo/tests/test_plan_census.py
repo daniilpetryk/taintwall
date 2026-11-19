@@ -4,6 +4,8 @@
 
 from plan_census import census, counts, report
 
+from taintwall.core.syntax import LANGUAGE_VERSION
+
 OFFERED = frozenset({"get_balance", "get_most_recent_transactions", "answer", "query_reader"})
 
 NATURAL = """\
@@ -55,6 +57,9 @@ def test_report_has_a_row_per_construct() -> None:
 def test_counts_are_the_rates_parts_per_model() -> None:
     data = census([{"code": ALLOWED, "finish_reason": "stop"}, {"code": None}], OFFERED)
     assert counts({"b/m": data, "a/m": data}) == {
-        "a/m": {"plans": 2, "cut": 0, "valid": 1, "accepted": 1},
-        "b/m": {"plans": 2, "cut": 0, "valid": 1, "accepted": 1},
+        "language": LANGUAGE_VERSION,
+        "models": {
+            "a/m": {"plans": 2, "cut": 0, "valid": 1, "accepted": 1},
+            "b/m": {"plans": 2, "cut": 0, "valid": 1, "accepted": 1},
+        },
     }

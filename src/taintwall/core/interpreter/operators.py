@@ -51,6 +51,9 @@ _COMPARE: Final[Mapping[type[ast.cmpop], Callable[..., object]]] = {
     ast.GtE: operator.ge,
     ast.In: lambda left, right: operator.contains(right, left),
     ast.NotIn: lambda left, right: not operator.contains(right, left),
+    # parse_plan allows identity only against None.
+    ast.Is: operator.is_,
+    ast.IsNot: operator.is_not,
 }
 
 

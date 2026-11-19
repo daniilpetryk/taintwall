@@ -61,8 +61,8 @@ def resolve(source: Json) -> Rate:
             node = node[part]
         return Rate(node["successes"], node["total"], node["ci95_low"], node["ci95_high"])
     if "census" in source:
-        counts = json.loads((ROOT / source["census"]).read_text(encoding="utf-8"))
-        row = counts[source["model"]]
+        census = json.loads((ROOT / source["census"]).read_text(encoding="utf-8"))
+        row = census["models"][source["model"]]
         successes, total = row[source["key"]], row["plans"]
         return Rate(successes, total, *wilson(successes, total))
     message = f"unknown source {sorted(source)}"

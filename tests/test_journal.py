@@ -19,6 +19,7 @@ import pytest
 
 from taintwall.core.errors import PlanError
 from taintwall.core.plan import parse_plan
+from taintwall.core.syntax import LANGUAGE_VERSION
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "bench" / "results"
@@ -85,7 +86,7 @@ def test_every_result_file_is_in_the_journal() -> None:
     sources = {m["source"].get("summary") or m["source"].get("census") for m in MEASUREMENTS}
     files = {
         str(path.relative_to(ROOT))
-        for pattern in ("**/summary-*.json", "**/census.json")
+        for pattern in ("**/summary-*.json", "**/census-v*.json")
         for path in RESULTS.glob(pattern)
     }
     assert files - sources == set(), "results not described in bench/results/journal.json"
@@ -113,13 +114,31 @@ def _recount(path: Path) -> dict[str, int]:
 
 
 @pytest.mark.parametrize(
-    "census", sorted(RESULTS.glob("**/census.json")), ids=lambda path: path.parent.name
+    "census",
+    sorted(RESULTS.glob("**/census-v*.json")),
+    ids=lambda path: f"{path.parent.name}-{path.stem}",
 )
 def test_the_census_matches_its_plans(census: Path) -> None:
-    # If the plan language changes, rerun `make bench-census` for the run.
-    counts = json.loads(census.read_text(encoding="utf-8"))
+    # A census of the current language is recounted in full. One of an
+    # earlier language is a record of its time: only the parts that do not
+    # depend on the language are checked. After a language change, run
+    # `make bench-census` to add a census of the new version.
+    data = json.loads(census.read_text(encoding="utf-8"))
+    assert census.stem == f"census-v{data['language']}"
+    current = data["language"] == LANGUAGE_VERSION
     for path in sorted(census.parent.glob("*.jsonl")):
-        assert counts[path.stem.replace("__", "/")] == _recount(path), path.name
+        recount = _recount(path)
+        stored = data["models"][path.stem.replace("__", "/")]
+        if not current:
+            recount, stored = (
+                {key: row[key] for key in ("plans", "cut", "valid")} for row in (recount, stored)
+            )
+        assert stored == recount, path.name
+
+
+def test_a_census_of_the_current_language_exists_for_every_run() -> None:
+    for run in {path.parent for path in RESULTS.glob("**/census-v*.json")}:
+        assert (run / f"census-v{LANGUAGE_VERSION}.json").exists(), run.name
 
 
 def test_the_page_shows_every_patch_and_how_numbers_moved() -> None:

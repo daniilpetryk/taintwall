@@ -21,7 +21,16 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   what the language adds next ([report](docs/planner-plans.md), #26).
 - Measurements page on GitHub Pages: patch notes with each number's change
   since it was last measured, built from `bench/results/journal.json` (#27).
-- This changelog, versioned releases, and the decision log (ADRs).
+- This changelog, versioned releases, and the decision log (ADRs) (#28).
+- Plan language version 2: string methods, `record.get`, number formats,
+  `is None`, `a if c else b`, `+=` and nine builtins, each labeled by what
+  its result depends on. Recounting the study's plans: with the rules in the
+  prompt, DeepSeek V3.2 goes from 19% to 88% of plans accepted, GPT-5 mini
+  from 62% to 94%, Haiku 5.5 to 100% (#29).
+
+### Changed
+- `and`/`or` operands after the first, and the branch of `a if c else b`,
+  run under a pc of what decided them (#29).
 
 ## [0.3.0] - 2026-11-19
 

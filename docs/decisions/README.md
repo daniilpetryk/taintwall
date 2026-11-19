@@ -21,3 +21,4 @@ decisions refine older ones rather than editing them.
 | [0013](0013-language-by-measured-need.md) | The plan language grows by measured need | 2026-11-19 | [#26](https://github.com/daniilpetryk/taintwall/pull/26) | accepted |
 | [0014](0014-measurement-journal.md) | Measurements are a journal of patches; numbers stay in result files | 2026-11-19 | [#27](https://github.com/daniilpetryk/taintwall/pull/27) | accepted |
 | [0015](0015-versions-and-changelog.md) | Semantic versions per release; the changelog is the release notes | 2026-11-19 | [#28](https://github.com/daniilpetryk/taintwall/pull/28) | accepted |
+| [0016](0016-language-versions.md) | The plan language has versions; a plan census records its version | 2026-11-19 | [#29](https://github.com/daniilpetryk/taintwall/pull/29) | accepted |

@@ -87,7 +87,7 @@ def test_runtime_errors(source: str, code: PlanErrorCode, line: int, detail: str
         ("x = f(_p=1)", "private name"),
         ("x = f(*a)", "star argument"),
         ("x = f(**a)", "keyword unpacking"),
-        ("x = text.upper()", "method call"),
+        ("x = text.pop()", "method call"),
         ("x = {1: 2}", "record key"),
         ("x = f'{a!r}'", "format spec"),
         ("a, b = 1, 2", "assignment target"),

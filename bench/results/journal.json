@@ -429,7 +429,7 @@
           "metric": "plans.banking.accepted.natural",
           "series": "Haiku 5.5",
           "source": {
-            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "census": "bench/results/agentdojo/plans/natural/census-v1.json",
             "model": "anthropic/claude-haiku-5.5",
             "key": "accepted"
           }
@@ -439,7 +439,7 @@
           "metric": "plans.banking.accepted.rules",
           "series": "Haiku 5.5",
           "source": {
-            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "census": "bench/results/agentdojo/plans/rules/census-v1.json",
             "model": "anthropic/claude-haiku-5.5",
             "key": "accepted"
           },
@@ -450,7 +450,7 @@
           "metric": "plans.banking.accepted.natural",
           "series": "DeepSeek V3.2",
           "source": {
-            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "census": "bench/results/agentdojo/plans/natural/census-v1.json",
             "model": "deepseek/deepseek-v3.2",
             "key": "accepted"
           }
@@ -460,7 +460,7 @@
           "metric": "plans.banking.accepted.rules",
           "series": "DeepSeek V3.2",
           "source": {
-            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "census": "bench/results/agentdojo/plans/rules/census-v1.json",
             "model": "deepseek/deepseek-v3.2",
             "key": "accepted"
           },
@@ -471,7 +471,7 @@
           "metric": "plans.banking.accepted.natural",
           "series": "Gemini 3.1 Flash Lite",
           "source": {
-            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "census": "bench/results/agentdojo/plans/natural/census-v1.json",
             "model": "google/gemini-3.1-flash-lite",
             "key": "accepted"
           }
@@ -481,7 +481,7 @@
           "metric": "plans.banking.accepted.rules",
           "series": "Gemini 3.1 Flash Lite",
           "source": {
-            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "census": "bench/results/agentdojo/plans/rules/census-v1.json",
             "model": "google/gemini-3.1-flash-lite",
             "key": "accepted"
           },
@@ -492,7 +492,7 @@
           "metric": "plans.banking.accepted.natural",
           "series": "Llama 4 Scout",
           "source": {
-            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "census": "bench/results/agentdojo/plans/natural/census-v1.json",
             "model": "meta-llama/llama-4-scout",
             "key": "accepted"
           }
@@ -502,7 +502,7 @@
           "metric": "plans.banking.accepted.rules",
           "series": "Llama 4 Scout",
           "source": {
-            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "census": "bench/results/agentdojo/plans/rules/census-v1.json",
             "model": "meta-llama/llama-4-scout",
             "key": "accepted"
           },
@@ -513,7 +513,7 @@
           "metric": "plans.banking.accepted.natural",
           "series": "GPT-5 mini",
           "source": {
-            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "census": "bench/results/agentdojo/plans/natural/census-v1.json",
             "model": "openai/gpt-5-mini",
             "key": "accepted"
           }
@@ -523,11 +523,134 @@
           "metric": "plans.banking.accepted.rules",
           "series": "GPT-5 mini",
           "source": {
-            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "census": "bench/results/agentdojo/plans/rules/census-v1.json",
             "model": "openai/gpt-5-mini",
             "key": "accepted"
           },
           "compare_to": "plans-natural-gpt-5-mini"
+        }
+      ]
+    },
+    {
+      "id": "language-v2",
+      "date": "2026-11-19",
+      "stage": "2",
+      "release": "Unreleased",
+      "decisions": [
+        "0013",
+        "0016"
+      ],
+      "kind": "study",
+      "prs": [
+        29
+      ],
+      "commit": null,
+      "title": "Plan language v2: what planners keep writing",
+      "changed": "The plan language accepts string methods, `record.get`, fixed-point number formats, `x is None`, `a if c else b`, `x += y` and the builtins `round`, `int`, `float`, `str`, `bool`, `range`, `sorted`, `any`, `all`, each labeled by what its result depends on. The later operands of `and`/`or` and the branch of `a if c else b` now run under a pc of what decided them.",
+      "question": "With the constructs the study asked for, how many of the same plans does the language accept?",
+      "result": "The same 160 plans, recounted: with rules in the prompt Haiku 5.5 reaches 100%, DeepSeek V3.2 goes from 19% to 88% and GPT-5 mini from 62% to 94%; Llama 4 Scout stays at 44% (its plans define functions and use comprehensions). No model calls: the plans are those of the study.",
+      "decision": "Keep `def`, comprehensions, slices and imports out; the static checker and typed retry (PR 2, PR 4) turn what remains into fixable errors. Accepted is still not correct: that is measured in PR 5.",
+      "cost_usd": 0.0,
+      "measurements": [
+        {
+          "id": "plans-natural-v2-haiku-5-5",
+          "metric": "plans.banking.accepted.natural",
+          "series": "Haiku 5.5",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census-v2.json",
+            "model": "anthropic/claude-haiku-5.5",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-v2-haiku-5-5",
+          "metric": "plans.banking.accepted.rules",
+          "series": "Haiku 5.5",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census-v2.json",
+            "model": "anthropic/claude-haiku-5.5",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-natural-v2-deepseek-v3-2",
+          "metric": "plans.banking.accepted.natural",
+          "series": "DeepSeek V3.2",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census-v2.json",
+            "model": "deepseek/deepseek-v3.2",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-v2-deepseek-v3-2",
+          "metric": "plans.banking.accepted.rules",
+          "series": "DeepSeek V3.2",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census-v2.json",
+            "model": "deepseek/deepseek-v3.2",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-natural-v2-gemini-3-1-flash-lite",
+          "metric": "plans.banking.accepted.natural",
+          "series": "Gemini 3.1 Flash Lite",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census-v2.json",
+            "model": "google/gemini-3.1-flash-lite",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-v2-gemini-3-1-flash-lite",
+          "metric": "plans.banking.accepted.rules",
+          "series": "Gemini 3.1 Flash Lite",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census-v2.json",
+            "model": "google/gemini-3.1-flash-lite",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-natural-v2-llama-4-scout",
+          "metric": "plans.banking.accepted.natural",
+          "series": "Llama 4 Scout",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census-v2.json",
+            "model": "meta-llama/llama-4-scout",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-v2-llama-4-scout",
+          "metric": "plans.banking.accepted.rules",
+          "series": "Llama 4 Scout",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census-v2.json",
+            "model": "meta-llama/llama-4-scout",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-natural-v2-gpt-5-mini",
+          "metric": "plans.banking.accepted.natural",
+          "series": "GPT-5 mini",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census-v2.json",
+            "model": "openai/gpt-5-mini",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-v2-gpt-5-mini",
+          "metric": "plans.banking.accepted.rules",
+          "series": "GPT-5 mini",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census-v2.json",
+            "model": "openai/gpt-5-mini",
+            "key": "accepted"
+          }
         }
       ]
     }
