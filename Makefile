@@ -8,7 +8,7 @@ HADOLINT  := $(call tool_image,hadolint)
 GRYPE     := $(call tool_image,grype)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline bench-craibench bench-test audit hooks \
+.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline bench-plans bench-craibench bench-test audit hooks \
         py-lint py-test go-lint go-test lint-docker \
         docker-build docker-check scan scan-images clean
 
@@ -49,6 +49,10 @@ bench-baseline: ## AgentDojo banking baseline (spends OpenRouter credit; ATTACK,
 	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python baseline.py \
 		--mode all --attack $(or $(ATTACK),important_instructions) \
 		--max-cost $(or $(MAX_COST),1.0) --run-name $(or $(RUN),banking-haiku-5.5)
+
+bench-plans: ## Stage 2 study: plans planners write for banking (spends credit; MODELS, RULES=1, MAX_COST)
+	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python plans.py \
+		--models $(or $(MODELS),anthropic/claude-haiku-5.5) --max-cost $(or $(MAX_COST),0.2) --run-name $(or $(RUN),plans) $(if $(RULES),--rules)
 
 bench-craibench: ## CrAIBench crypto suites (spends credit; MODE, SAMPLE, MEMORY=1, MAX_COST)
 	cd bench/craibench && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-craibench-venv uv run python baseline.py \

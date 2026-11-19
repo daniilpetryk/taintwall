@@ -215,7 +215,7 @@ on_violation: ask_user
 |---|---|---|
 | 0 | Repo skeleton; baseline plain agent on AgentDojo banking + Haiku 5.5 with `usage` logging; read CrAIBench repo | Real cost per task, baseline utility and ASR, decision on CrAIBench (run on it or extend) |
 | 1 | `ast` interpreter, `Labeled[T]` with principals and readers, limits | Unit tests for label propagation |
-| 2 | P-LLM and Q-LLM (structured outputs, `have_enough_info`), tool registry, static plan checker + typed retry | Run without policies, utility loss and plan failure rate measured |
+| 2 | P-LLM and Q-LLM (structured outputs, `have_enough_info`), tool registry, static plan checker + typed retry; first, what planners write ([`planner-plans.md`](planner-plans.md)) | Run without policies, utility loss and plan failure rate measured |
 | 3 | Capabilities, both implicit-flow modes benchmarked, policy engine, principals, readers, plan-level approval and risk tiers | Utility vs security table on AgentDojo banking |
 | 4 | Persistent label store (SQLite: memory, address book, caches); CrAIBench integration; anvil environment | Memory-injection attacks blocked; web3 numbers |
 | 5 | Simulation with effect accounting, balance policies, price source, Go signer with decision token and limits | Web3 layer defense |

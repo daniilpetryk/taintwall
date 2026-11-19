@@ -18,6 +18,11 @@ succeeded). Lines are sorted, so a rerun that changes nothing changes no
 line. AgentDojo's file also has the injection tasks run as user tasks
 (`attack_type` null), which AgentDojo checks before attacking.
 
+`agentdojo/plans/<run>/` holds a study, not a baseline: the plans five
+models wrote for the banking tasks (one JSON line per task with the prompt,
+the reply and the extracted code) and the system prompt used. See
+[`docs/planner-plans.md`](../../docs/planner-plans.md).
+
 Transcripts and the response cache stay local in `bench/*/runs/`
 (git-ignored). The runners write these files on every run; the `meter` in a
 summary counts only calls made by the runs that produced the file, so
