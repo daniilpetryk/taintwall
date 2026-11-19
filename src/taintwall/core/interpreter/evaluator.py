@@ -193,6 +193,7 @@ _HANDLERS: Final[Mapping[type[ast.expr], Callable[[Context, ast.expr], Ref]]] = 
     ast.UnaryOp: operations.unary_op,
     ast.Compare: operations.comparison,
     ast.BoolOp: operations.boolean,
+    ast.IfExp: operations.conditional,
     ast.Call: operations.call,
 }
 """One handler per syntax node the plan language allows (see ``plan.py``)."""

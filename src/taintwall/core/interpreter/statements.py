@@ -1,6 +1,6 @@
 # Copyright 2026 Daniil Petryk
 # SPDX-License-Identifier: Apache-2.0
-"""Statements: assignment, ``if``, ``for``, ``while``, ``break``, ``continue``.
+"""Statements: assignment (also ``+=``), ``if``, ``for``, ``while``, ``break``, ``continue``.
 
 Each handler returns how its block ended (``Signal``). The pc rules live in
 ``control``; handlers only say which condition a block depends on:
@@ -60,6 +60,25 @@ def _assign(scope: Scope, node: ast.stmt) -> Signal:
     def run() -> None:
         _check_target(scope, name, node)
         scope.bind(name, scope.expr(node.value), node)
+
+    scope.attempt(run)
+    return Signal.NEXT
+
+
+def _augmented(scope: Scope, node: ast.stmt) -> Signal:
+    """``x += y`` is ``x = x + y`` (also ``-=``, ``*=``); ``parse_plan`` checks the shape."""
+    assert isinstance(node, ast.AugAssign)  # noqa: S101 - dispatch guarantees the type
+    target = node.target
+    assert isinstance(target, ast.Name)  # noqa: S101 - parse_plan guarantees it
+    name = target.id
+    # The evaluator ignores ``ctx``; it is set so the node is well formed.
+    load = ast.Name(id=name, ctx=ast.Load())  # pragma: no mutate - ctx unread
+    read = ast.copy_location(load, target)
+    value = ast.copy_location(ast.BinOp(left=read, op=node.op, right=node.value), node)
+
+    def run() -> None:
+        _check_target(scope, name, node)
+        scope.bind(name, scope.expr(value), node)
 
     scope.attempt(run)
     return Signal.NEXT
@@ -172,6 +191,7 @@ def _continue(_scope: Scope, _node: ast.stmt) -> Signal:
 
 _HANDLERS: Final[Mapping[type[ast.stmt], Callable[[Scope, ast.stmt], Signal]]] = {
     ast.Assign: _assign,
+    ast.AugAssign: _augmented,
     ast.Expr: _expression,
     ast.If: _if,
     ast.For: _for,

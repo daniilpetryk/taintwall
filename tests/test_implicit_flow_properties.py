@@ -53,6 +53,19 @@ def _expressions() -> st.SearchStrategy[str]:
         return st.one_of(
             st.builds("({} {} {})".format, inner, st.sampled_from(_OPERATORS), inner),
             st.builds("(not {})".format, inner),
+            st.builds("({} if {} else {})".format, inner, inner, inner),
+            st.builds("({} is None)".format, inner),
+            st.builds("{}({})".format, st.sampled_from(["str", "round", "bool"]), inner),
+            st.builds("({}).lower()".format, inner),
+            st.builds("{{'k': {}}}.get({}, {})".format, inner, inner, inner),
+            st.builds("range({})".format, inner),
+            st.builds(
+                "{}(({}, {}))".format, st.sampled_from(["any", "all", "sorted"]), inner, inner
+            ),
+            st.builds("'-'.join(({}, {}))".format, inner, inner),
+            st.builds("({}).replace({}, {})".format, inner, inner, inner),
+            st.builds("({}).split()".format, inner),
+            st.builds("f'{{({}):.1f}}'".format, inner),
         )
 
     return st.recursive(st.sampled_from(_LEAVES), extend, max_leaves=4)
@@ -69,7 +82,8 @@ def _block(draw: st.DrawFn, indent: int, depth: int, *, in_loop: bool) -> list[s
         kind = draw(st.sampled_from(kinds))
         test = draw(_expressions())
         if kind == "assign":
-            lines.append(f"{pad}{draw(st.sampled_from(['x', 'y']))} = {test}")
+            operator = draw(st.sampled_from(["=", "=", "+="]))
+            lines.append(f"{pad}{draw(st.sampled_from(['x', 'y']))} {operator} {test}")
         elif kind == "if":
             lines += [f"{pad}if {test}:", *draw(_block(indent + 4, depth + 1, in_loop=in_loop))]
             if draw(st.booleans()):

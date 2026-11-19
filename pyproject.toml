@@ -223,10 +223,10 @@ allowed_importers = ["taintwall.core", "taintwall.policy", "taintwall.store"]
 # independent: same level, and they may not import each other.
 
 [[tool.importlinter.contracts]]
-name = "Core layers: interpreter > plan, values, mint > labels, errors"
+name = "Core layers: interpreter > plan, values, mint > syntax, labels > errors"
 type = "layers"
 containers = ["taintwall.core"]
-layers = ["interpreter", "plan | values | mint", "labels | errors"]
+layers = ["interpreter", "plan | values | mint", "syntax | labels", "errors"]
 
 [[tool.importlinter.contracts]]
 name = "Interpreter layers: entry point down to limits and trace"
@@ -238,7 +238,7 @@ layers = [
     "reads | literals | operations | statements",
     "context",
     "tools",
-    "builtins",
+    "builtins | methods",
     "operators",
     "walk",
     "limits | trace | control",
@@ -263,13 +263,20 @@ paths_to_mutate = ["src/taintwall/core/"]
 also_copy = ["src/taintwall/"]  # the rest of the package, unmutated
 tests_dir = ["tests/"]
 # Tests that read source files check code shape, not behavior, and would
-# see mutmut's instrumented copies; they run in the normal CI jobs.
+# see mutmut's instrumented copies; tests of the records (journal,
+# changelog, decisions) read files mutmut does not copy. All of them run in
+# the normal CI jobs.
 pytest_add_cli_args = [
     "-p",
     "no:randomly",
     "-q",
     "--ignore=tests/test_code_quality.py",
     "--ignore=tests/test_architecture.py",
+    # These read the repository's docs and results, which mutmut does not
+    # copy; they check records, not core behavior.
+    "--ignore=tests/test_journal.py",
+    "--ignore=tests/test_changelog.py",
+    "--ignore=tests/test_decisions.py",
 ]
 
 # --- pylint: duplicate code only ---------------------------------------------

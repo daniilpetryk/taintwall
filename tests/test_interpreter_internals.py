@@ -49,6 +49,20 @@ def raises(error: type[BaseException]) -> object:
     raise error
 
 
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (ZeroDivisionError, PlanErrorCode.DIVISION_BY_ZERO),
+        (OverflowError, PlanErrorCode.VALUE_TOO_LARGE),
+        (ValueError, PlanErrorCode.TYPE_MISMATCH),
+    ],
+)
+def test_apply_names_what_was_called(error: type[Exception], code: PlanErrorCode) -> None:
+    with pytest.raises(PlanError) as err:
+        apply(EXPRESSION, raises, error, detail="round")
+    assert (err.value.code, err.value.detail) == (code, "round")
+
+
 def test_overflow_becomes_value_too_large_at_the_node() -> None:
     with pytest.raises(PlanError) as err:
         apply(EXPRESSION, raises, OverflowError)

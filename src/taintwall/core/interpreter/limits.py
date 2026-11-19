@@ -97,6 +97,11 @@ class Guard:
         if len(sequence) * count > limit:
             raise self.fail(PlanErrorCode.VALUE_TOO_LARGE)
 
+    def check_items(self, count: int) -> None:
+        """Reject a sequence of ``count`` elements before it is built."""
+        if count > self._limits.max_items:
+            raise self.fail(PlanErrorCode.VALUE_TOO_LARGE)
+
     def check_size(self, value: object) -> None:
         """Reject a built value that is over a size limit."""
         limits = self._limits

@@ -28,6 +28,7 @@ from bench_common.stats import wilson
 
 from taintwall.core.errors import PlanError
 from taintwall.core.plan import parse_plan
+from taintwall.core.syntax import LANGUAGE_VERSION
 
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
@@ -208,9 +209,13 @@ def report(by_model: dict[str, Census]) -> str:
     return "\n".join(lines)
 
 
-def counts(by_model: dict[str, Census]) -> dict[str, dict[str, int]]:
-    """The rates' numerators and denominators per model, for ``census.json``."""
-    return {
+def counts(by_model: dict[str, Census]) -> dict[str, object]:
+    """The rates' parts per model, for ``census-v<language>.json``.
+
+    The language version says which plan language counted ``accepted``, so a
+    census stays a record of its time when the language grows.
+    """
+    models = {
         model: {
             "plans": data.plans,
             "cut": data.cut,
@@ -219,13 +224,14 @@ def counts(by_model: dict[str, Census]) -> dict[str, dict[str, int]]:
         }
         for model, data in sorted(by_model.items())
     }
+    return {"language": LANGUAGE_VERSION, "models": models}
 
 
 def main() -> int:
     """Print the census of a run's plans and write its counts to ``census.json``.
 
-    ``census.json`` is what the measurements page reads; ``tests/test_journal.py``
-    recomputes it from the plans, so it cannot drift from them.
+    ``census-v<language>.json`` is what the measurements page reads;
+    ``tests/test_journal.py`` recomputes it from the plans, so it cannot drift.
     """
     directory = Path(sys.argv[1])
     offered = frozenset(json.loads((directory / "functions.json").read_text(encoding="utf-8")))
@@ -233,7 +239,7 @@ def main() -> int:
     for path in sorted(directory.glob("*.jsonl")):
         plans = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
         by_model[path.stem.replace("__", "/")] = census(plans, offered)
-    out = directory / "census.json"
+    out = directory / f"census-v{LANGUAGE_VERSION}.json"
     out.write_text(json.dumps(counts(by_model), indent=2) + "\n", encoding="utf-8")
     print(report(by_model))  # noqa: T201 - CLI output
     return 0

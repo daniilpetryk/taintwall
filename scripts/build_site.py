@@ -270,13 +270,12 @@ def release_link(release: str) -> str:
 def card_head(patch: Json, journal: Json) -> str:
     """Kind, date, stage, PRs and commit, then the title (a link to itself) and what changed."""
     prs = ", ".join(f'<a href="{REPO_URL}/pull/{pr}">#{pr}</a>' for pr in patch["prs"])
-    commit = (
-        f'<a href="{REPO_URL}/commit/{_e(patch["commit"])}"><code>{_e(patch["commit"])}</code></a>'
-    )
-    meta = (
-        f"{_e(patch['date'])} · {release_link(patch['release'])} · "
-        f"{stage_name(journal, patch['stage'])} · {prs} · {commit}"
-    )
+    sha = patch["commit"]
+    # A patch's commit is known once it is merged; until then only its PR.
+    commit = f'<a href="{REPO_URL}/commit/{_e(sha)}"><code>{_e(sha)}</code></a>' if sha else ""
+    stage = stage_name(journal, patch["stage"])
+    parts = (_e(patch["date"]), release_link(patch["release"]), stage, prs, commit)
+    meta = " · ".join(part for part in parts if part)
     badge = f'<span class="badge">{_e(patch["kind"])}</span>'
     title = f'<a class="self" href="#{_e(patch["id"])}">{_e(patch["title"])}</a>'
     return (

@@ -35,7 +35,8 @@ pull request then shows the policy change as a diff.
 | Security boundaries (LLM, tools, chain, mint) | Import Linter `forbidden`, `protected` | `[tool.importlinter]` | see design.md |
 | Branch coverage, whole project | pytest-cov | `[tool.coverage.report] fail_under` | 95% |
 | Coverage of lines a pull request adds or changes | diff-cover | `.github/workflows/ci.yml` | 100% |
-| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 99.9%) |
+| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 100%) |
+| Property tests (noninterference, trace coverage, label laws) | Hypothesis | `tests/conftest.py` profiles | 500 examples per PR, 5000 nightly |
 | Types | mypy strict + Pyrefly | `[tool.mypy]`, `[tool.pyrefly]` | both clean |
 | Unused or undeclared dependencies | deptry | `[tool.deptry]` | none |
 
@@ -58,8 +59,9 @@ independent: they sit on one level and may not import each other.
 ```
 taintwall.core
   interpreter
-  plan | values | mint
-  labels | errors
+  plan | values | mint            plan parsing; records; minting trusted sources
+  syntax | labels                 which syntax the language allows | provenance labels
+  errors                          typed plan errors
 
 taintwall.core.interpreter
   runtime                         Interpreter: one requester, one set of tools
@@ -68,9 +70,10 @@ taintwall.core.interpreter
     | statements                  one handler per statement (if, for, while, ...)
   context                         the protocols handlers depend on (Context, Scope, ToolCalls)
   tools                           tool registry, source stamp, failure isolation
-  builtins                        len, abs, min, max, sum
+  builtins | methods              builtin functions | string methods and record.get
   operators                       type rules, values and labels of operators
-  walk                            reading nested values: plain, deep label, depth, unwrap, truth
+  walk                            reading nested values: plain, deep label, depth, unwrap,
+                                  truth, the label of a field or element read
   limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
 

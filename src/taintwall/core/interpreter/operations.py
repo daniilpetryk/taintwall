@@ -6,9 +6,14 @@ The rules for values and labels live in ``operators``, ``builtins`` and
 ``tools``; these handlers evaluate operands and record the trace.
 
 * ``and``/``or`` short-circuit, and the result carries every evaluated
-  operand, since the left one chose the outcome.
+  operand, since the left one chose the outcome. Each later operand runs
+  under a pc of the earlier ones, since whether it runs at all depends on
+  them (a tool in ``ok and send(...)`` is called only if ``ok``).
+* ``a if c else b`` evaluates one branch under a pc of ``c``; the result
+  carries the chosen value's label and the test's.
 * A call resolves its name before its arguments run, as Python does, so a
-  misspelled outer call fails before inner calls with side effects.
+  misspelled outer call fails before inner calls with side effects. A method
+  call evaluates its receiver first, then its arguments.
 """
 
 import ast
@@ -17,7 +22,9 @@ from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.builtins import BUILTINS, call_builtin
 from taintwall.core.interpreter.context import Context
+from taintwall.core.interpreter.control import Dependence
 from taintwall.core.interpreter.location import error_at
+from taintwall.core.interpreter.methods import call_method
 from taintwall.core.interpreter.operators import binary, compare, unary
 from taintwall.core.interpreter.trace import EventKind, Origin, Ref
 from taintwall.core.interpreter.walk import deep_label, truth
@@ -55,10 +62,17 @@ def boolean(context: Context, node: ast.expr) -> Ref:
     assert isinstance(node, ast.BoolOp)  # noqa: S101 - dispatch guarantees the type
     stop_on_true = isinstance(node.op, ast.Or)
     evaluated: list[Ref] = []
+    decided = Dependence()
     for operand in node.values:
-        evaluated.append(context.expr(operand))
-        if truth(evaluated[-1].labeled, context.guard)[0] is stop_on_true:
+        with context.flow.branch(decided):
+            evaluated.append(context.expr(operand))
+        holds, label = truth(evaluated[-1].labeled, context.guard)
+        if holds is stop_on_true:
             break
+        # Ids of expression-level conditions are read only by statement-level relabeling.
+        decided.extend(
+            Dependence.on(label, evaluated[-1].id)  # pragma: no mutate - ids unread here
+        )
     label = join_all(*(deep_label(ref.labeled, context.guard) for ref in evaluated))
     chosen = evaluated[-1].labeled.value
     origin = Origin(
@@ -67,9 +81,22 @@ def boolean(context: Context, node: ast.expr) -> Ref:
     return context.new((chosen, label), origin)
 
 
+def conditional(context: Context, node: ast.expr) -> Ref:
+    """``a if c else b``: only the chosen branch runs, under a pc of ``c``."""
+    assert isinstance(node, ast.IfExp)  # noqa: S101 - dispatch guarantees the type
+    test = context.expr(node.test)
+    holds, label = truth(test.labeled, context.guard)
+    with context.flow.branch(Dependence.on(label, test.id)):  # pragma: no mutate - ids unread here
+        chosen = context.expr(node.body if holds else node.orelse)
+    result = (chosen.labeled.value, chosen.labeled.label.join(label))
+    return context.new(result, Origin(EventKind.OPERATION, node, "IfExp", (test.id, chosen.id)))
+
+
 def call(context: Context, node: ast.expr) -> Ref:
     """``tool(...)`` or ``builtin(...)``."""
     assert isinstance(node, ast.Call)  # noqa: S101 - dispatch guarantees the type
+    if isinstance(node.func, ast.Attribute):
+        return _method(context, node, node.func)
     assert isinstance(node.func, ast.Name)  # noqa: S101 - parse_plan guarantees it
     function = node.func.id
     is_tool = function in context.tools
@@ -87,3 +114,14 @@ def call(context: Context, node: ast.expr) -> Ref:
         return context.new(result, Origin(EventKind.CALL, node, function, inputs))
     result = call_builtin(node, function, arguments, context.guard)
     return context.new(result, Origin(EventKind.OPERATION, node, function, inputs))
+
+
+def _method(context: Context, node: ast.Call, method: ast.Attribute) -> Ref:
+    """``receiver.method(...)``; ``parse_plan`` allows only known methods, positionally."""
+    receiver = context.expr(method.value)
+    arguments = [context.expr(arg) for arg in node.args]
+    result = call_method(
+        node, method.attr, receiver.labeled, tuple(ref.labeled for ref in arguments), context.guard
+    )
+    inputs = (receiver.id, *(ref.id for ref in arguments))
+    return context.new(result, Origin(EventKind.OPERATION, node, f".{method.attr}", inputs))

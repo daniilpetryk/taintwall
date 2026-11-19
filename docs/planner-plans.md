@@ -91,6 +91,21 @@ with rules: `int` (3), `round` (2), and once each `range`, `sorted`, `str`,
    a per-model budget and treat `finish_reason == "length"` as a typed
    failure, not as a plan.
 
+## Follow-up: the same plans under language version 2
+
+Stage 2, PR 1a added the constructs below (#29). Recounting the same plans,
+with no new model calls (`census-v2.json` next to the study's `census-v1.json`):
+
+| | Haiku 5.5 | DeepSeek V3.2 | Gemini 3.1 Flash Lite | Llama 4 Scout | GPT-5 mini |
+|---|---|---|---|---|---|
+| natural, v1 → v2 | 0% → 19% | 12% → 25% | 25% → 75% | 31% → 38% | 0% → 0% |
+| rules, v1 → v2 | 88% → **100%** | 19% → **88%** | 81% → 88% | 44% → 44% | 62% → **94%** |
+
+What still fails with rules: function definitions (3 plans), comprehensions
+(4), slices (2), and one each of an unlisted method, a width format, an
+import, a tuple loop target and a loop `else`. Llama 4 Scout writes most of
+them.
+
 ## Decisions for PR 1
 
 Add, with labels like the operations they resemble:

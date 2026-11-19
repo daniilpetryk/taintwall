@@ -51,19 +51,27 @@ _COMPARE: Final[Mapping[type[ast.cmpop], Callable[..., object]]] = {
     ast.GtE: operator.ge,
     ast.In: lambda left, right: operator.contains(right, left),
     ast.NotIn: lambda left, right: not operator.contains(right, left),
+    # parse_plan allows identity only against None.
+    ast.Is: operator.is_,
+    ast.IsNot: operator.is_not,
 }
 
 
-def apply(node: ast.expr, function: Callable[..., object], *args: object) -> object:
-    """Call ``function``, turning Python errors into typed plan errors."""
+def apply(
+    node: ast.expr, function: Callable[..., object], *args: object, detail: str = ""
+) -> object:
+    """Call ``function``, turning Python errors into typed plan errors.
+
+    ``detail`` names what was called (plan text), for the planner's retry.
+    """
     try:
         return function(*args)
     except ZeroDivisionError:
-        raise error_at(PlanErrorCode.DIVISION_BY_ZERO, node) from None
+        raise error_at(PlanErrorCode.DIVISION_BY_ZERO, node, detail) from None
     except OverflowError:
-        raise error_at(PlanErrorCode.VALUE_TOO_LARGE, node) from None
+        raise error_at(PlanErrorCode.VALUE_TOO_LARGE, node, detail) from None
     except (TypeError, ValueError):
-        raise error_at(PlanErrorCode.TYPE_MISMATCH, node) from None
+        raise error_at(PlanErrorCode.TYPE_MISMATCH, node, detail) from None
 
 
 def binary(node: ast.BinOp, left: Labeled[object], right: Labeled[object], guard: Guard) -> Result:

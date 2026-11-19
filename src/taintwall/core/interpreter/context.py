@@ -44,6 +44,11 @@ class Context(Protocol):
         ...
 
     @property
+    def flow(self) -> Flow:
+        """The pc and the implicit-flow mode of this run."""
+        ...
+
+    @property
     def tools(self) -> ToolCalls:
         """Tools the plan may call."""
         ...
@@ -63,11 +68,6 @@ class Context(Protocol):
 
 class Scope(Context, Protocol):
     """The state of one run, as seen by a statement handler."""
-
-    @property
-    def flow(self) -> Flow:
-        """The pc and the implicit-flow mode of this run."""
-        ...
 
     def attempt[R](self, action: Callable[[], R]) -> R:
         """Run ``action``; label a failure by what it depends on.
