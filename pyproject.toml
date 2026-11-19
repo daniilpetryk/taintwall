@@ -305,6 +305,11 @@ allowed_internal_imports = [
 
 # --- typos: spelling ---------------------------------------------------------
 
+[tool.typos.files]
+# Model replies and benchmark task texts, kept verbatim (AgentDojo's own
+# prompts have typos such as "suspicous").
+extend-exclude = ["bench/results/agentdojo/plans/"]
+
 [tool.typos.default]
 # Linter rule codes (CPY001, S101, DL3008) are identifiers, not words.
 extend-ignore-re = ["\\b[A-Z]{1,4}[0-9]{3,4}\\b"]

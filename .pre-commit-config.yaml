@@ -35,7 +35,8 @@ repos:
     rev: v1.52.2
     hooks:
       - id: typos
-        args: []
+        # pre-commit passes file names, so pyproject's extend-exclude needs this
+        args: [--force-exclude]
 
   # licensing: every file covered (REUSE.toml + SPDX headers)
   - repo: https://github.com/fsfe/reuse-tool
