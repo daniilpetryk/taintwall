@@ -35,7 +35,7 @@ pull request then shows the policy change as a diff.
 | Security boundaries (LLM, tools, chain, mint) | Import Linter `forbidden`, `protected` | `[tool.importlinter]` | see design.md |
 | Branch coverage, whole project | pytest-cov | `[tool.coverage.report] fail_under` | 95% |
 | Coverage of lines a pull request adds or changes | diff-cover | `.github/workflows/ci.yml` | 100% |
-| Mutation score of `taintwall.core` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 100%) |
+| Mutation score of `taintwall.core` and `taintwall.tools` (nightly) | mutmut + `scripts/mutation_score.py` | `min_mutation_score` | 98% (measured 100%) |
 | Property tests (noninterference, trace coverage, label laws) | Hypothesis | `tests/conftest.py` profiles | 500 examples per PR, 5000 nightly |
 | Types | mypy strict + Pyrefly | `[tool.mypy]`, `[tool.pyrefly]` | both clean |
 | Unused or undeclared dependencies | deptry | `[tool.deptry]` | none |
@@ -76,6 +76,12 @@ taintwall.core.interpreter
                                   truth, the label of a field or element read
   limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
+
+taintwall.tools
+  registry                        specs with implementations; interpreter tools; a call log per run
+  calls                           the hook: argument checks and call records before a tool runs
+  spec                            parameters, result, effects, readers, signature
+  values | schema                 plan values to Python and back | parameter and result types
 
 taintwall.core.labels
   value                           Labeled values, typed equality

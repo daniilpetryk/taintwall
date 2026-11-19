@@ -10,14 +10,16 @@ the attacker too. Any tool failure becomes ``TOOL_FAILED`` without its text.
 
 import ast
 import contextlib
+import dataclasses
 from collections.abc import Callable, Iterable, Mapping
+from typing import Protocol
 
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.control import LabeledPlanError
 from taintwall.core.interpreter.limits import Guard
-from taintwall.core.interpreter.location import error_at
+from taintwall.core.interpreter.location import error_at, line_of
 from taintwall.core.interpreter.trace import Result
 from taintwall.core.interpreter.walk import deep_label
 from taintwall.core.labels import Label, Labeled, Source, join_all
@@ -42,6 +44,35 @@ def _call_isolated(tool: Tool, arguments: Arguments) -> object:
     return None  # pragma: no mutate - any non-Labeled result is TOOL_FAILED
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class PendingCall:
+    """A tool call about to run: what a hook sees before any side effect.
+
+    ``labels`` are the arguments' deep labels, positional first, in the order
+    of ``arguments.all``; ``control`` is the pc, the conditions that decided
+    the call runs at all (``None`` outside any branch).
+    """
+
+    name: str
+    arguments: Arguments
+    labels: tuple[Label, ...]
+    control: Label | None
+    line: int
+
+
+class CallHook(Protocol):
+    """Runs before every tool call, after its arguments' labels are read.
+
+    It may raise ``PlanError`` to stop the call before its side effect (a
+    wrong argument type, later a policy denial); the error is labeled like
+    any failure of the statement.
+    """
+
+    def before(self, call: PendingCall) -> None:
+        """Check, record or refuse ``call``."""
+        ...
+
+
 class ToolNameClashError(ValueError):
     """A tool would shadow a builtin of the plan language."""
 
@@ -52,22 +83,36 @@ class ToolNameClashError(ValueError):
 class Toolbox:
     """The tools of one interpreter, each with the source stamped on its results."""
 
-    def __init__(self, tools: Mapping[str, Tool]) -> None:
+    def __init__(self, tools: Mapping[str, Tool], hook: CallHook | None = None) -> None:
         clashes = set(tools) & BUILTINS
         if clashes:
             raise ToolNameClashError(clashes)
         # Validates tool names as sources up front (InvalidSourceError).
         self._tools = {name: (tool, Label.of(Source.tool(name))) for name, tool in tools.items()}
+        self._hook = hook
 
     def __contains__(self, name: object) -> bool:
         return name in self._tools
 
-    def call(self, node: ast.Call, name: str, arguments: Arguments, guard: Guard) -> Result:
-        """Call tool ``name``; it must exist (``name in toolbox``)."""
+    def call(
+        self,
+        node: ast.Call,
+        name: str,
+        arguments: Arguments,
+        guard: Guard,
+        control: Label | None,
+    ) -> Result:
+        """Call tool ``name``; it must exist (``name in toolbox``).
+
+        ``control`` is the pc; the hook, if any, sees it with the argument
+        labels before the tool runs.
+        """
         tool, stamp = self._tools[name]
         # Read before the call: a limit hit here must stop the plan before
-        # the tool's side effect, and stage 3 checks these labels first.
-        inputs = [deep_label(item, guard) for item in arguments.all]
+        # the tool's side effect, and the hook checks these labels first.
+        inputs = tuple(deep_label(item, guard) for item in arguments.all)
+        if self._hook is not None:
+            self._hook.before(PendingCall(name, arguments, inputs, control, line_of(node)))
         result = _call_isolated(tool, arguments)
         if not isinstance(result, Labeled):
             # Whether a tool fails depends on its environment, not only on

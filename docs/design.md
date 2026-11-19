@@ -152,6 +152,14 @@ Carried into stage 3: the policy hook before each tool call reads the pc (`contr
 2. **Simulation before signing with effect accounting (contribution A).** The transaction runs on an anvil fork at a pinned block; the policy joins the diff with plan labels: every effect must be explained, outflow ≤ X and only to trusted addresses. USD values come from `price_source` (Q7).
 3. **Isolated Go signer.** Signs only transactions that passed the policy (decision token: HMAC over tx hash, chainId, nonce, expiry) and applies its own limits (Q5, Q6). Later: ERC-4337 smart account with a session key and on-chain spending limits, i.e. defense in depth.
 
+## Tools (stage 2)
+Implemented in `src/taintwall/tools/` ([ADR 0017](decisions/0017-tools-from-trusted-specs.md)).
+
+- **Specs from trusted configuration.** A `ToolSpec` has a name, a description, typed parameters, a result type, effects (`writes`, `moves_funds`, `outward`) and readers (Q9). The description reaches the planner, so it never comes from a tool server (tool poisoning). Types are what the plan language can produce: atoms, optional values, lists and records; JSON schemas translate into them (with `$ref`), anything else is refused.
+- **Values across the boundary.** Arguments leave the plan as plain Python (tuples as lists, records as dicts); results come back with the tool's source and readers on every atom, element and field, so a field read joins the field's label with the record's (Q2). Models (`model_dump`), enums and dates convert; other types, keys that are not field names and nesting past 64 levels are refused, which the interpreter reports as `TOOL_FAILED`.
+- **A hook before every call.** The interpreter calls `CallHook.before` with the tool's name, arguments, their deep labels, the pc and the line, after the labels are read and before the tool runs; a `PlanError` it raises stops the call, labeled like any failure. `CallLog` checks the arguments against the spec (`BAD_ARGUMENTS` with the tool's name) and records the call with its effects and pc. The replanning loop may retry only while `effects_happened` is false (Q3); stage 3's policies are another hook over the same records.
+- **AgentDojo.** `bench/agentdojo/registry.py` turns a suite's functions into specs: parameters from their input schemas, results from their return types, descriptions from AgentDojo's source. Effects and readers are listed per function there; a function not listed counts as changing something. Errors from AgentDojo's runtime become exceptions, so their text never reaches the planner.
+
 ## Threat model
 **The attacker controls:**
 - any external data the agent reads: token and NFT metadata, DAO proposal texts, calldata and messages in transactions, web pages, responses from "open world" MCP servers;

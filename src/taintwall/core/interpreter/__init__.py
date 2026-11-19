@@ -29,11 +29,12 @@ from taintwall.core.interpreter.runtime import (
     InvalidFlowsError,
     InvalidRequesterError,
 )
-from taintwall.core.interpreter.tools import Tool, ToolNameClashError
+from taintwall.core.interpreter.tools import CallHook, PendingCall, Tool, ToolNameClashError
 from taintwall.core.interpreter.trace import EventKind, TraceEvent
 
 __all__ = [
     "BUILTINS",
+    "CallHook",
     "EventKind",
     "ImplicitFlows",
     "Interpreter",
@@ -42,6 +43,7 @@ __all__ = [
     "InvalidRequesterError",
     "LabeledPlanError",
     "Limits",
+    "PendingCall",
     "RunResult",
     "Tool",
     "ToolNameClashError",

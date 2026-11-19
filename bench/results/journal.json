@@ -544,7 +544,7 @@
       "prs": [
         29
       ],
-      "commit": null,
+      "commit": "b2adf72",
       "title": "Plan language v2: what planners keep writing",
       "changed": "The plan language accepts string methods, `record.get`, fixed-point number formats, `x is None`, `a if c else b`, `x += y` and the builtins `round`, `int`, `float`, `str`, `bool`, `range`, `sorted`, `any`, `all`, each labeled by what its result depends on. The later operands of `and`/`or` and the branch of `a if c else b` now run under a pc of what decided them.",
       "question": "With the constructs the study asked for, how many of the same plans does the language accept?",

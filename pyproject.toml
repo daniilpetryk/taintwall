@@ -252,6 +252,12 @@ containers = ["taintwall.core.labels"]
 layers = ["value", "label | immutability", "source", "errors"]
 
 [[tool.importlinter.contracts]]
+name = "Tool layers: registry > call log > specs > values, schema"
+type = "layers"
+containers = ["taintwall.tools"]
+layers = ["registry", "calls", "spec", "values | schema"]
+
+[[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
 type = "acyclic_siblings"
 ancestors = ["taintwall"]
@@ -259,7 +265,7 @@ ancestors = ["taintwall"]
 # --- mutmut: mutation testing (nightly, see .github/workflows/mutation.yml) -----
 
 [tool.mutmut]
-paths_to_mutate = ["src/taintwall/core/"]
+paths_to_mutate = ["src/taintwall/core/", "src/taintwall/tools/"]
 also_copy = ["src/taintwall/"]  # the rest of the package, unmutated
 tests_dir = ["tests/"]
 # Tests that read source files check code shape, not behavior, and would
@@ -301,7 +307,7 @@ max_module_lines = 300       # physical lines per source module
 max_function_lines = 40      # lines per function or method, docstring included
 max_class_methods = 15       # methods per class, private ones included
 banned_module_names = ["utils", "helpers", "common", "misc", "manager", "base"]
-min_mutation_score = 98.0    # % of core mutants the tests catch (nightly); ratchet up
+min_mutation_score = 98.0    # % of core and tools mutants the tests catch (nightly)
 max_test_module_lines = 700  # tests: one file per module under test
 max_test_function_lines = 40
 # Packages below the top level (taintwall.core.labels, ...) are used only

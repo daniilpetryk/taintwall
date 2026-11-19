@@ -9,7 +9,7 @@ from taintwall.core.interpreter.control import Flow, ImplicitFlows
 from taintwall.core.interpreter.evaluator import Evaluator, RunResult
 from taintwall.core.interpreter.limits import Guard, Limits
 from taintwall.core.interpreter.statements import block
-from taintwall.core.interpreter.tools import Tool, Toolbox
+from taintwall.core.interpreter.tools import CallHook, Tool, Toolbox
 from taintwall.core.labels import Label, Source, SourceKind
 from taintwall.core.mint import Mint
 from taintwall.core.plan import Plan
@@ -36,10 +36,12 @@ class Interpreter:
 
     Literals carry the plan and the requester, so a plan written from a
     stranger's request never produces owner-trusted constants (contribution C).
-    ``flows`` chooses whether control dependencies enter values (Q2).
+    ``flows`` chooses whether control dependencies enter values (Q2);
+    ``hook`` runs before every tool call (argument checks, call records, and
+    the policies of stage 3).
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - every option after tools is keyword-only
         self,
         tools: Mapping[str, Tool],
         *,
@@ -47,6 +49,7 @@ class Interpreter:
         mint: Mint,
         limits: Limits | None = None,
         flows: ImplicitFlows = ImplicitFlows.STRICT,
+        hook: CallHook | None = None,
     ) -> None:
         """Set up the interpreter.
 
@@ -59,7 +62,7 @@ class Interpreter:
         """
         if requester.kind not in _REQUESTER_KINDS or requester.is_category:
             raise InvalidRequesterError
-        self._tools = Toolbox(tools)
+        self._tools = Toolbox(tools, hook)
         self._literal_label = Label.of(mint.plan(), requester)
         self._limits = limits or Limits()
         if not isinstance(flows, ImplicitFlows):
