@@ -1,6 +1,6 @@
 # taintwall: design
 
-Diagrams and walkthroughs: [`architecture.html`](architecture.html) (open in a browser). This file is the text version and the source of truth for decisions.
+Diagrams and walkthroughs: [`architecture.html`](architecture.html) (open in a browser). This file is the text version and the current state of every decision; when and why each one was made is in the [decision log](decisions/README.md), and what each release changed in the [changelog](../CHANGELOG.md).
 
 ## The idea in one paragraph
 A runtime for AI agents with a crypto wallet, protected from prompt injection **by architecture**, not by prompting. The agent reads untrusted data: token names and metadata, NFT metadata, DAO proposal texts, calldata, messages, web pages, other people in a group chat. Any injection there can lead to irreversible loss of funds. The defense separates planning from reading data, tracks the provenance of every value (taint tracking), checks policies before every tool call, and simulates transactions before signing.

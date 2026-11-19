@@ -192,6 +192,12 @@
       "id": "core-labels-interpreter",
       "date": "2026-11-18",
       "stage": "1",
+      "release": "0.2.0",
+      "decisions": [
+        "0005",
+        "0006",
+        "0007"
+      ],
       "kind": "change",
       "prs": [
         12,
@@ -208,6 +214,10 @@
       "id": "baseline-agentdojo-banking",
       "date": "2026-11-18",
       "stage": "0",
+      "release": "0.2.0",
+      "decisions": [
+        "0008"
+      ],
       "kind": "baseline",
       "prs": [
         15
@@ -254,6 +264,11 @@
       "id": "baseline-tool-knowledge-craibench",
       "date": "2026-11-18",
       "stage": "0",
+      "release": "0.2.0",
+      "decisions": [
+        "0003",
+        "0009"
+      ],
       "kind": "baseline",
       "prs": [
         18
@@ -372,6 +387,12 @@
       "id": "implicit-flows",
       "date": "2026-11-19",
       "stage": "1",
+      "release": "0.3.0",
+      "decisions": [
+        "0010",
+        "0011",
+        "0012"
+      ],
       "kind": "change",
       "prs": [
         24
@@ -386,6 +407,10 @@
       "id": "study-planner-plans",
       "date": "2026-11-19",
       "stage": "2",
+      "release": "Unreleased",
+      "decisions": [
+        "0013"
+      ],
       "kind": "study",
       "prs": [
         26
