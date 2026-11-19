@@ -8,7 +8,8 @@ Labels follow what each result depends on:
   does not depend on what the elements are.
 * ``abs``, ``min``, ``max``, ``sum``, ``round``, ``any``, ``all`` and the
   conversions ``int``, ``float``, ``str`` read every nested element, so they
-  carry deep labels, and they return an atom.
+  carry deep labels, and they return an atom. ``str(None)`` is ``"None"``;
+  ``int`` and ``float`` need a value.
 * ``sorted`` keeps each element with its own label; the result's order
   depends on every element, so the tuple carries the deep label.
 * ``range`` builds a tuple of integers labeled by its arguments; its length
@@ -77,7 +78,8 @@ def _bool(node: ast.Call, name: str, args: tuple[Labeled[object], ...], guard: G
 def _convert(node: ast.Call, name: str, args: tuple[Labeled[object], ...], guard: Guard) -> Result:
     _arity(node, name, args, range(1, 2))
     value = plain(args[0].value, guard)
-    if type(value) not in ATOMS or value is None:
+    # ``str(None)`` is "None", as in an f-string; numbers need a value.
+    if type(value) not in ATOMS or (value is None and name != "str"):
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node, name)
     # Number parsing is bounded by the string limit and Python's digit limit.
     return apply(node, _CONVERSIONS[name], value), deep_label(args[0], guard)
@@ -89,7 +91,8 @@ def _range(node: ast.Call, name: str, args: tuple[Labeled[object], ...], guard: 
     if any(type(bound) is not int for bound in bounds):
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node, name)
     steps = cast("range", apply(node, range, *bounds))  # pragma: no mutate - type only
-    guard.check_items(len(steps))
+    # A range past a C ssize_t has no len(): that is too large, typed like the rest.
+    guard.check_items(cast("int", apply(node, len, steps)))  # pragma: no mutate - type only
     return tuple(steps), join_all(*(item.label for item in args))
 
 

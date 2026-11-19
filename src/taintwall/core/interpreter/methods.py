@@ -3,9 +3,11 @@
 """Methods a plan may call: pure string methods, and ``record.get``.
 
 A string method's result depends on the receiver and every argument, so it
-carries all their deep labels. Sizes are checked before a result is built:
-``replace`` and ``join`` compute the length first, and ``split`` the number
-of parts, so a short plan cannot build a string or tuple past a limit.
+carries all their deep labels. ``replace`` and ``join`` compute the result's
+length before building it, so a short plan cannot build a huge string;
+``split`` makes at most one part per character of a string already within
+its limit, and the tuple's size is checked when it is made. An error names
+the method (plan text).
 
 ``record.get(field, default)`` reads like ``record[field]``: the field's own
 label joined with the record's and the key's, and the default's, which the
@@ -22,7 +24,7 @@ from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
 from taintwall.core.interpreter.operators import apply
 from taintwall.core.interpreter.trace import Result
-from taintwall.core.interpreter.walk import deep_label, plain, unwrap
+from taintwall.core.interpreter.walk import deep_label, plain, read_label, unwrap
 from taintwall.core.labels import Label, Labeled, join_all
 from taintwall.core.values import Record
 
@@ -30,10 +32,16 @@ type Method = Callable[[ast.Call, str, tuple[object, ...], Guard], object]
 """A string method: receiver and plain arguments to its value."""
 
 
+def _name(node: ast.Call) -> str:
+    """The method's name, for an error detail (``parse_plan`` made it an attribute)."""
+    assert isinstance(node.func, ast.Attribute)  # noqa: S101 - methods are called on attributes
+    return node.func.attr
+
+
 def _strings(node: ast.Call, values: tuple[object, ...], count: range) -> tuple[str, ...]:
     """The arguments, which must be strings, with an arity in ``count``."""
     if len(values) not in count or any(type(value) is not str for value in values):
-        raise error_at(PlanErrorCode.BAD_ARGUMENTS, node)
+        raise error_at(PlanErrorCode.BAD_ARGUMENTS, node, _name(node))
     return values  # type: ignore[return-value]
 
 
@@ -80,7 +88,7 @@ def _split(node: ast.Call, text: str, values: tuple[object, ...], _guard: Guard)
 
 def _join(node: ast.Call, text: str, values: tuple[object, ...], guard: Guard) -> object:
     if len(values) != 1 or type(values[0]) is not tuple:
-        raise error_at(PlanErrorCode.BAD_ARGUMENTS, node)
+        raise error_at(PlanErrorCode.BAD_ARGUMENTS, node, "join")
     items: tuple[object, ...] = values[0]
     if any(type(item) is not str for item in items):
         raise error_at(PlanErrorCode.TYPE_MISMATCH, node, "join")
@@ -135,4 +143,4 @@ def _get(
     default = arguments[1] if len(arguments) == 2 else Labeled(None, key.label)  # noqa: PLR2004 - field, default
     found = record.get(key.value)  # type: ignore[arg-type]
     field = default if found is None else found
-    return field.value, join_all(field.label, own, key.label, default.label)
+    return field.value, read_label(field.label, own, key.label, default.label)

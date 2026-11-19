@@ -135,6 +135,7 @@ class TestStringMethods:
             ("x = text().replace('a')", PlanErrorCode.BAD_ARGUMENTS),
             ("x = text().split('')", PlanErrorCode.TYPE_MISMATCH),
             ("x = sep().join(text())", PlanErrorCode.BAD_ARGUMENTS),
+            ("x = sep().join()", PlanErrorCode.BAD_ARGUMENTS),
             ("x = sep().join((1, 2))", PlanErrorCode.TYPE_MISMATCH),
             ("x = text().get('a')", PlanErrorCode.TYPE_MISMATCH),
         ],
@@ -178,6 +179,14 @@ class TestRecordGet:
 
     def test_without_a_default_a_missing_field_is_none(self) -> None:
         assert x("x = row().get('age')").value is None
+
+    def test_a_computed_key_adds_its_label(self) -> None:
+        # Which field was read depends on the key, for r.get(k) as for r[k].
+        tools = {"key": _constant("name", SEP)}
+        for expression in ("row().get(key(), 0)", "row()[key()]"):
+            result = x(f"x = {expression}", tools=tools)
+            assert result.value == "Bob"
+            assert SEP in result.label.sources
 
     def test_the_key_must_be_a_string(self) -> None:
         assert failure("x = row().get(1)").code is PlanErrorCode.BAD_ARGUMENTS
@@ -235,6 +244,7 @@ class TestBuiltins:
         [
             ("x = str((1, 2))", PlanErrorCode.TYPE_MISMATCH),
             ("x = int(nothing())", PlanErrorCode.TYPE_MISMATCH),
+            ("x = float(nothing())", PlanErrorCode.TYPE_MISMATCH),
             ("x = int('a')", PlanErrorCode.TYPE_MISMATCH),
             ("x = float('nan')", PlanErrorCode.VALUE_TOO_LARGE),
             ("x = range('3')", PlanErrorCode.TYPE_MISMATCH),
@@ -249,6 +259,23 @@ class TestBuiltins:
     )
     def test_misuse_is_typed(self, source: str, code: PlanErrorCode) -> None:
         assert failure(source).code is code
+
+    def test_str_of_none_is_none_like_an_f_string(self) -> None:
+        assert x("x = str(nothing())").value == "None"
+
+    def test_a_range_too_long_to_measure_is_too_large(self) -> None:
+        # len() of a range past a C ssize_t raises OverflowError in Python.
+        big = "100000000000000000000"
+        err = failure(f"n = {big} * {big} * {big}\nx = range(n)")
+        assert (err.code, err.line) == (PlanErrorCode.VALUE_TOO_LARGE, 2)
+
+    def test_a_number_too_large_for_a_fixed_point_format_is_typed(self) -> None:
+        source = (
+            "n = 10000000000\nm = n * n * n * n * n * n * n * n * n * n\n"
+            "k = m * m * m * m * m * m * m * m * m * m * m * m\nx = f'{k:.2f}'"
+        )
+        err = failure(source, limits=Limits(max_int_bits=4096))
+        assert (err.code, err.line) == (PlanErrorCode.VALUE_TOO_LARGE, 4)
 
     def test_range_checks_its_length_before_building(self) -> None:
         err = failure("x = range(1000000000)", limits=Limits(max_items=1000))
@@ -388,16 +415,17 @@ class TestEdges:
             ("x = row().get()", PlanErrorCode.BAD_ARGUMENTS, "get"),
             ("x = number().lower()", PlanErrorCode.TYPE_MISMATCH, "lower"),
             ("x = sep().join((1, 2))", PlanErrorCode.TYPE_MISMATCH, "join"),
+            ("x = sep().join(1)", PlanErrorCode.BAD_ARGUMENTS, "join"),
             ('x = f"{text():.2f}"', PlanErrorCode.TYPE_MISMATCH, "format"),
-            ("x = text().strip('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().split('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().replace('a', 'b', 'c')", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().lower('a')", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().upper('a')", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().endswith(1)", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().endswith()", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().endswith('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, ""),
-            ("x = text().startswith('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, ""),
+            ("x = text().strip('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, "strip"),
+            ("x = text().split('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, "split"),
+            ("x = text().replace('a', 'b', 'c')", PlanErrorCode.BAD_ARGUMENTS, "replace"),
+            ("x = text().lower('a')", PlanErrorCode.BAD_ARGUMENTS, "lower"),
+            ("x = text().upper('a')", PlanErrorCode.BAD_ARGUMENTS, "upper"),
+            ("x = text().endswith(1)", PlanErrorCode.BAD_ARGUMENTS, "endswith"),
+            ("x = text().endswith()", PlanErrorCode.BAD_ARGUMENTS, "endswith"),
+            ("x = text().endswith('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, "endswith"),
+            ("x = text().startswith('a', 'b')", PlanErrorCode.BAD_ARGUMENTS, "startswith"),
         ],
     )
     def test_errors_carry_their_code_and_detail(

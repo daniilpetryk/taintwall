@@ -12,7 +12,7 @@ import ast
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.context import Context
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import ATOMS, NUMBERS
+from taintwall.core.interpreter.operators import ATOMS, NUMBERS, apply
 from taintwall.core.interpreter.trace import EventKind, Origin, Ref
 from taintwall.core.interpreter.walk import check_nesting, deep_label
 from taintwall.core.labels import join_all
@@ -63,8 +63,8 @@ def _interpolate(part: ast.FormattedValue, value: object) -> str:
     assert isinstance(spec, ast.JoinedStr)  # noqa: S101 - parse_plan guarantees it
     constant = spec.values[0]
     assert isinstance(constant, ast.Constant)  # noqa: S101 - parse_plan guarantees it
-    # Fixed-point with one precision digit: at most ~170 characters for 512-bit ints.
-    return format(value, str(constant.value))
+    # An int past the float range cannot be shown fixed-point: a typed error.
+    return str(apply(part, format, value, str(constant.value)))
 
 
 def formatted(context: Context, node: ast.expr) -> Ref:

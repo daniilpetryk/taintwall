@@ -58,8 +58,9 @@ independent: they sit on one level and may not import each other.
 ```
 taintwall.core
   interpreter
-  plan | values | mint
-  labels | errors
+  plan | values | mint            plan parsing; records; minting trusted sources
+  syntax | labels                 which syntax the language allows | provenance labels
+  errors                          typed plan errors
 
 taintwall.core.interpreter
   runtime                         Interpreter: one requester, one set of tools
@@ -68,9 +69,10 @@ taintwall.core.interpreter
     | statements                  one handler per statement (if, for, while, ...)
   context                         the protocols handlers depend on (Context, Scope, ToolCalls)
   tools                           tool registry, source stamp, failure isolation
-  builtins                        len, abs, min, max, sum
+  builtins | methods              builtin functions | string methods and record.get
   operators                       type rules, values and labels of operators
-  walk                            reading nested values: plain, deep label, depth, unwrap, truth
+  walk                            reading nested values: plain, deep label, depth, unwrap,
+                                  truth, the label of a field or element read
   limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
 

@@ -55,6 +55,11 @@ def _expressions() -> st.SearchStrategy[str]:
             st.builds("({}).{}()".format, inner, st.sampled_from(["lower", "strip", "split"])),
             st.builds("{{'k': {}}}.get({}, {})".format, inner, inner, inner),
             st.builds("sorted(({},))".format, items),
+            st.builds("range({})".format, inner),
+            st.builds("{}(({},))".format, st.sampled_from(["any", "all"]), items),
+            st.builds("'-'.join(({},))".format, items),
+            st.builds("({}).replace({}, {})".format, inner, inner, inner),
+            st.builds("f'{{({}):.1f}}'".format, inner),
         )
 
     return st.recursive(leaves, extend, max_leaves=8)

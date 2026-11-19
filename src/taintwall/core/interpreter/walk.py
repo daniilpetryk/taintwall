@@ -15,6 +15,15 @@ from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled, join_all
 from taintwall.core.values import Record
 
 
+def read_label(own: Label, container: Label, *keys: Label) -> Label:
+    """The label of reading a field or element: its own, the container's, the key's.
+
+    One rule for ``r.f``, ``r[k]``, ``t[i]`` and ``r.get(k, d)``: what was read
+    depends on what it is, where it was, and which key chose it.
+    """
+    return join_all(own, container, *keys)
+
+
 def unwrap(labeled: Labeled[object], guard: Guard) -> tuple[object, Label]:
     """The value inside nested ``Labeled`` wrappers, with every wrapper's label.
 
