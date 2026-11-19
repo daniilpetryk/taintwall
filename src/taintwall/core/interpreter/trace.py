@@ -36,7 +36,9 @@ class TraceEvent:
     """One step of the provenance trace.
 
     ``detail`` comes from the plan text (an operator, tool, field or variable
-    name), never from data, so the trace can be shown to the planner.
+    name), never from data. The trace's shape is not data-free: which events
+    exist depends on the branches taken (``RunResult.control``), so neither
+    the trace nor the set of variables may reach the planner unfiltered.
     ``control`` is the pc when the event happened: the label of every
     condition it depends on, in both implicit-flow modes, or ``None``.
     """

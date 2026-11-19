@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from hypothesis import given
 from hypothesis import strategies as st
 
-from taintwall.core.interpreter import Interpreter, LabeledPlanError, Limits, Tool
+from taintwall.core.interpreter import EventKind, Interpreter, LabeledPlanError, Limits, Tool
 from taintwall.core.labels import Label, Labeled, Source, join_all
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
@@ -116,7 +116,7 @@ def _plain(value: object) -> object:
     return (type(value), value)
 
 
-def _outcome(plan: str, values: Mapping[str, object], steps: int) -> tuple[Outcome, Label]:
+def _interpreter(values: Mapping[str, object], steps: int) -> Interpreter:
     def source_tool(name: str) -> Tool:
         def tool() -> Labeled[object]:
             if values[name] == "fail":
@@ -129,9 +129,12 @@ def _outcome(plan: str, values: Mapping[str, object], steps: int) -> tuple[Outco
 
     tools = {f"src_{name}": source_tool(name) for name in (*NAMES, *CALLED)}
     limits = Limits(max_steps=steps, **LIMITS)
-    interpreter = Interpreter(tools, requester=MINT.owner(), mint=MINT, limits=limits)
+    return Interpreter(tools, requester=MINT.owner(), mint=MINT, limits=limits)
+
+
+def _outcome(plan: str, values: Mapping[str, object], steps: int) -> tuple[Outcome, Label]:
     try:
-        x = interpreter.run(parse_plan(plan)).variables["x"]
+        x = _interpreter(values, steps).run(parse_plan(plan)).variables["x"]
     except LabeledPlanError as err:
         return ("failed", err.code, err.line), err.label
     return ("ok", _plain(x)), _deep(x)
@@ -146,3 +149,19 @@ def test_strict_flows_do_not_interfere(plan: str, steps: int) -> None:
         if source in base_label.sources or source in altered_label.sources:
             continue
         assert altered == base, (plan, name)
+
+
+@given(_plans())
+def test_every_event_covers_its_inputs(plan: str) -> None:
+    # Loop elements (``index``) and relabeling (``control``) included; a
+    # ``build`` keeps each element's own label inside the container.
+    try:
+        run = _interpreter(BASE, 10_000).run(parse_plan(plan))
+    except LabeledPlanError:
+        return
+    by_id: dict[int, Label] = {}
+    for event in run.trace:
+        if event.kind is not EventKind.BUILD:
+            for input_id in event.inputs:
+                assert event.label.covers(by_id[input_id]), (plan, event)
+        by_id.setdefault(event.value_id, event.label)

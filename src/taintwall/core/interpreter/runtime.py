@@ -48,6 +48,15 @@ class Interpreter:
         limits: Limits | None = None,
         flows: ImplicitFlows = ImplicitFlows.STRICT,
     ) -> None:
+        """Set up the interpreter.
+
+        Raises:
+            InvalidRequesterError: ``requester`` is not the owner or a
+                precise principal.
+            ToolNameClashError: a tool shadows a builtin.
+            InvalidSourceError: a tool name is not a valid source name.
+            InvalidFlowsError: ``flows`` is not an ``ImplicitFlows`` member.
+        """
         if requester.kind not in _REQUESTER_KINDS or requester.is_category:
             raise InvalidRequesterError
         self._tools = Toolbox(tools)

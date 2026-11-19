@@ -70,7 +70,7 @@ taintwall.core.interpreter
   tools                           tool registry, source stamp, failure isolation
   builtins                        len, abs, min, max, sum
   operators                       type rules, values and labels of operators
-  walk                            reading nested values: plain, deep label, depth
+  walk                            reading nested values: plain, deep label, depth, unwrap, truth
   limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
 

@@ -82,8 +82,8 @@ def _expression(scope: Scope, node: ast.stmt) -> Signal:
 
 def _if(scope: Scope, node: ast.stmt) -> Signal:
     assert isinstance(node, ast.If)  # noqa: S101 - dispatch guarantees the type
-    test, holds, label = scope.attempt(lambda: _test(scope, node.test))
-    condition = Dependence.on(label, test)
+    test_id, holds, label = scope.attempt(lambda: _test(scope, node.test))
+    condition = Dependence.on(label, test_id)
     with scope.flow.branch(condition):
         signal = block(scope, node.body if holds else node.orelse)
     _settle(scope, node, condition)
@@ -121,7 +121,7 @@ def _for(scope: Scope, node: ast.stmt) -> Signal:
             def bind(item: object = item) -> None:
                 scope.guard.at(node)
                 scope.guard.step()
-                scope.bind(name, _element(scope, node, (source.id, container), item), node)
+                scope.bind(name, _element(scope, node, source.id, container, item), node)
 
             scope.attempt(bind)
             if block(scope, node.body) is Signal.BREAK:
@@ -130,9 +130,8 @@ def _for(scope: Scope, node: ast.stmt) -> Signal:
     return Signal.NEXT
 
 
-def _element(scope: Scope, node: ast.For, source: tuple[int, Label], item: object) -> Ref:
+def _element(scope: Scope, node: ast.For, source_id: int, container: Label, item: object) -> Ref:
     """One element of the iterated tuple, labeled like ``t[i]``."""
-    source_id, container = source
     value, own = (item.value, item.label) if isinstance(item, Labeled) else (item, container)
     origin = Origin(EventKind.INDEX, node.target, "", (source_id,))
     return scope.new((value, own.join(container)), origin)
@@ -144,8 +143,8 @@ def _while(scope: Scope, node: ast.stmt) -> Signal:
     with scope.flow.loop(frame):
         while True:
             scope.guard.at(node)
-            test, holds, label = scope.attempt(lambda: _test(scope, node.test))
-            frame.extend(Dependence.on(label, test))
+            test_id, holds, label = scope.attempt(lambda: _test(scope, node.test))
+            frame.extend(Dependence.on(label, test_id))
             scope.flow.grow()
             if not holds or block(scope, node.body) is Signal.BREAK:
                 break
