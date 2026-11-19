@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-19
-- **Where:** this PR
+- **Where:** [#28](https://github.com/daniilpetryk/taintwall/pull/28)
 
 ## Context
 
