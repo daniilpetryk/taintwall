@@ -64,13 +64,14 @@ taintwall.core
 taintwall.core.interpreter
   runtime                         Interpreter: one requester, one set of tools
   evaluator                       one run's state; dispatches each syntax node
-  reads | literals | operations   one handler per syntax node
-  context                         the protocols handlers depend on (Context, ToolCalls)
+  reads | literals | operations   one handler per expression node
+    | statements                  one handler per statement (if, for, while, ...)
+  context                         the protocols handlers depend on (Context, Scope, ToolCalls)
   tools                           tool registry, source stamp, failure isolation
   builtins                        len, abs, min, max, sum
   operators                       type rules, values and labels of operators
   walk                            reading nested values: plain, deep label, depth
-  limits | trace                  run limits and guard; provenance trace
+  limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
 
 taintwall.core.labels
@@ -80,7 +81,7 @@ taintwall.core.labels
   errors                          typed errors with bounded previews
 ```
 
-Handlers depend on the `Context` and `ToolCalls` protocols rather than on
+Handlers depend on the `Context`, `Scope` and `ToolCalls` protocols rather than on
 the evaluator or the toolbox (dependency inversion). That is what lets the
 evaluator import them for its dispatch table without a cycle. In the same
 way `immutability` takes the already-checked type as a parameter instead of

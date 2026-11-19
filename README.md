@@ -8,7 +8,7 @@ An agent with a wallet reads text that strangers write: token names, NFT metadat
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** stage 1, building the core. Provenance labels and the plan interpreter for explicit flows (`taintwall.core`) are implemented and property-tested; implicit flows are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
+> **Status:** stage 1 done. Provenance labels and the plan interpreter (`taintwall.core`), with explicit and implicit flows (strict and lenient), are implemented and property-tested; the planner and reader (stage 2) are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
 
 ## The attack it stops
 
@@ -111,12 +111,12 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
   - [x] Repo skeleton, CI and quality gates
   - [x] CrAIBench review ([`docs/craibench-review.md`](docs/craibench-review.md))
   - [x] Baselines with Haiku 5.5 ([`docs/baselines.md`](docs/baselines.md)): prompt-injection ASR 0–4% on AgentDojo banking and CrAIBench, **memory-injection ASR 48–67%** on CrAIBench; $1.23 in total
-- [ ] **1** Interpreter with `Labeled[T]`, principals and readers
+- [x] **1** Interpreter with `Labeled[T]`, principals and readers
   - [x] Provenance labels: sources, readers, principals, join, category collapse
   - [x] Interpreter: explicit flows, limits, typed errors
-  - [ ] Implicit flows (`if`/`for`/`while`), strict and lenient modes
+  - [x] Implicit flows (`if`/`for`/`while`), strict and lenient modes, labeled failures
 - [ ] **2** Planner and reader, tool registry, plan checker with typed retry
-- [ ] **3** Implicit flows, policy engine, plan-level approval
+- [ ] **3** Policy engine, plan-level approval, both flow modes benchmarked
 - [ ] **4** Persistent label store, CrAIBench integration, anvil environment
 - [ ] **5** Simulation with effect accounting, Go signer
 - [ ] **6** Provenance viewer, results, write-up

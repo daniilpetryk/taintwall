@@ -7,6 +7,8 @@ structure draws from the run's read budget, because repetition shares
 references and a small plan can build a value with very many paths.
 """
 
+from collections.abc import Iterable, Iterator
+
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled, join_all
@@ -47,6 +49,24 @@ def deep_label(labeled: Labeled[object], guard: Guard) -> Label:
             labels.append(item.label)
         pending.extend(children(item))
     return join_all(*labels)
+
+
+def labels_within(values: Iterable[Labeled[object]]) -> Iterator[Label]:
+    """Every label in ``values``, nested ones included, each shared value once.
+
+    Used only when a run has already failed, so it draws on no budget; it
+    visits each distinct object once, which the run's sizes already bound.
+    """
+    seen: set[int] = set()
+    pending: list[object] = list(values)
+    while pending:
+        item = pending.pop()
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, Labeled):
+            yield item.label
+        pending.extend(children(item))
 
 
 def check_nesting(value: object, guard: Guard) -> None:

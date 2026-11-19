@@ -20,9 +20,11 @@ from taintwall.core.interpreter import (
     Limits,
     ToolNameClashError,
 )
+from taintwall.core.interpreter.control import Dependence, Flow, ImplicitFlows
 from taintwall.core.interpreter.evaluator import Evaluator
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.operators import apply
+from taintwall.core.interpreter.statements import block
 from taintwall.core.interpreter.tools import Toolbox
 from taintwall.core.interpreter.trace import EventKind, Origin
 from taintwall.core.labels import Label, Labeled, Source
@@ -40,7 +42,7 @@ def _tool() -> Labeled[object]:
 
 
 def evaluator() -> Evaluator:
-    return Evaluator(Toolbox({}), LABEL, Guard(Limits()))
+    return Evaluator(Toolbox({}), LABEL, Guard(Limits()), Flow(ImplicitFlows.STRICT))
 
 
 def raises(error: type[BaseException]) -> object:
@@ -65,10 +67,10 @@ def test_a_non_finite_result_is_too_large_at_the_node() -> None:
     assert (err.value.code, err.value.line) == (PlanErrorCode.VALUE_TOO_LARGE, 3)
 
 
-@pytest.mark.parametrize(("source", "detail"), [("pass", "Pass"), ("import os", "Import")])
+@pytest.mark.parametrize(("source", "detail"), [("del x", "Delete"), ("import os", "Import")])
 def test_unknown_statements_fail_closed(source: str, detail: str) -> None:
     with pytest.raises(PlanError) as err:
-        evaluator().statement(ast.parse("\n" + source).body[0])
+        block(evaluator(), ast.parse("\n" + source).body)
     assert (err.value.code, err.value.line, err.value.detail) == (
         PlanErrorCode.UNSUPPORTED,
         2,
@@ -146,3 +148,25 @@ def test_setup_errors_name_the_problem(
     assert all(text in str(err.value) for text in shown), str(err.value)
     if error is InvalidRequesterError:
         assert str(err.value) == "requester must be the owner or a precise principal source"
+
+
+class TestDependence:
+    def test_a_covered_condition_adds_no_id(self) -> None:
+        # A while loop evaluates its test once per iteration; listing every
+        # id made long loops quadratic.
+        frame = Dependence.on(LABEL, 1)
+        frame.extend(Dependence.on(LABEL, 2))
+        assert frame.ids == (1,)
+
+    def test_a_new_source_adds_its_id_once(self) -> None:
+        frame = Dependence.on(LABEL, 1)
+        other = Dependence.on(Label.of(Source.tool("t")), 2)
+        frame.extend(other)
+        frame.extend(other)
+        assert frame.ids == (1, 2)
+        assert frame.label == LABEL.join(other.label)  # type: ignore[arg-type]
+
+    def test_merging_returns_a_new_object(self) -> None:
+        frame = Dependence.on(LABEL, 1)
+        assert frame.merged(Dependence()) is not frame
+        assert frame.merged(Dependence()) == frame

@@ -26,6 +26,8 @@ class EventKind(enum.StrEnum):
     INDEX = "index"
     BUILD = "build"
     ASSIGN = "assign"
+    CONTROL = "control"
+    """A variable now also depends on a condition (strict implicit flows)."""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -34,6 +36,8 @@ class TraceEvent:
 
     ``detail`` comes from the plan text (an operator, tool, field or variable
     name), never from data, so the trace can be shown to the planner.
+    ``control`` is the pc when the event happened: the label of every
+    condition it depends on, in both implicit-flow modes, or ``None``.
     """
 
     value_id: int
@@ -42,6 +46,7 @@ class TraceEvent:
     detail: str
     inputs: tuple[int, ...]
     label: Label
+    control: Label | None = None
 
 
 type Result = tuple[object, Label]
@@ -70,22 +75,25 @@ class Trace:
     def __init__(self) -> None:
         self._events: list[TraceEvent] = []
 
-    def add(self, labeled: Labeled[object], origin: Origin) -> Ref:
+    def add(self, labeled: Labeled[object], origin: Origin, control: Label | None) -> Ref:
         """Record a new value and give it the next id."""
         value_id = len(self._events)
-        self._append(value_id, labeled.label, origin)
+        self._append(value_id, labeled.label, origin, control)
         return Ref(labeled, value_id)
 
-    def assign(self, ref: Ref, name: str, node: ast.stmt) -> None:
+    def assign(self, ref: Ref, name: str, node: ast.stmt, control: Label | None) -> None:
         """Record that variable ``name`` now holds ``ref``."""
-        self._append(ref.id, ref.labeled.label, Origin(EventKind.ASSIGN, node, name, (ref.id,)))
+        origin = Origin(EventKind.ASSIGN, node, name, (ref.id,))
+        self._append(ref.id, ref.labeled.label, origin, control)
 
     @property
     def events(self) -> tuple[TraceEvent, ...]:
         """All events so far, in order."""
         return tuple(self._events)
 
-    def _append(self, value_id: int, label: Label, origin: Origin) -> None:
+    def _append(self, value_id: int, label: Label, origin: Origin, control: Label | None) -> None:
         line = line_of(origin.node)
-        event = TraceEvent(value_id, origin.kind, line, origin.detail, origin.inputs, label)
+        event = TraceEvent(
+            value_id, origin.kind, line, origin.detail, origin.inputs, label, control
+        )
         self._events.append(event)

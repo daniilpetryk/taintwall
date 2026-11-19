@@ -8,9 +8,11 @@ without an import cycle, and each handler sees only what it needs.
 """
 
 import ast
+from collections.abc import Callable
 from typing import Protocol
 
 from taintwall.core.interpreter.arguments import Arguments
+from taintwall.core.interpreter.control import Dependence, Flow
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.trace import Origin, Ref, Result
 from taintwall.core.labels import Label
@@ -56,4 +58,29 @@ class Context(Protocol):
 
     def variable(self, name: str) -> Ref | None:
         """The value of variable ``name``, if it is assigned."""
+        ...
+
+
+class Scope(Context, Protocol):
+    """The state of one run, as seen by a statement handler."""
+
+    @property
+    def flow(self) -> Flow:
+        """The pc and the implicit-flow mode of this run."""
+        ...
+
+    def attempt[R](self, action: Callable[[], R]) -> R:
+        """Run ``action``; label a failure by what it depends on.
+
+        Use for one simple statement or one statement header; nested
+        statements label their own failures.
+        """
+        ...
+
+    def bind(self, name: str, ref: Ref, node: ast.stmt) -> None:
+        """Assign ``ref`` to variable ``name``."""
+        ...
+
+    def settle(self, node: ast.stmt, condition: Dependence) -> None:
+        """After a block: variables it may assign depend on ``condition``."""
         ...
