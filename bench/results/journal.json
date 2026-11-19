@@ -1,0 +1,510 @@
+{
+  "_doc": "Measurement journal: one entry per patch, newest last. Values are read from the source files at build time (scripts/build_site.py); tests/test_journal.py checks every source.",
+  "overview": {
+    "what": "taintwall is a runtime for AI agents that hold a crypto wallet. It defends against prompt injection by design: the model that plans never reads untrusted data, every value carries a label saying where it came from, and policies check those labels before any tool runs.",
+    "goal": "Cut the attack success rate to near zero while keeping utility close to the undefended agent's.",
+    "now": "Only baselines and studies so far: the defense itself is measured from stage 2, PR 5 on. The strongest attack on the undefended agent is memory injection.",
+    "highlights": [
+      {
+        "measurement": "cb-crypto_trading-asr-memory",
+        "note": "memory injection on CrAIBench crypto_trading, undefended agent: the attack taintwall must stop"
+      },
+      {
+        "measurement": "ad-asr-tk",
+        "note": "prompt injection through tool output on AgentDojo banking: this model already refuses it"
+      },
+      {
+        "measurement": "ad-utility",
+        "note": "utility of the undefended agent on AgentDojo banking: what the defense may not lose"
+      },
+      {
+        "measurement": "plans-rules-haiku-5-5",
+        "note": "plans our plan language accepts when the planner is told the rules (Haiku 5.5)"
+      }
+    ]
+  },
+  "stages": {
+    "0": "Baselines",
+    "1": "Core: labels and interpreter",
+    "2": "Planner and reader",
+    "3": "Policies",
+    "4": "Memory and web3",
+    "5": "Simulation and signer",
+    "6": "Publication"
+  },
+  "glossary": [
+    [
+      "Utility",
+      "Share of normal tasks the agent completes correctly. Higher is better."
+    ],
+    [
+      "ASR",
+      "Attack success rate: share of attacked tasks in which the attacker's goal was achieved. Lower is better; the target is 0%."
+    ],
+    [
+      "Utility under attack",
+      "Share of tasks still completed correctly while an attack is present."
+    ],
+    [
+      "Prompt injection",
+      "Attacker text hidden in data a tool returns (a file, a transaction subject, a web page)."
+    ],
+    [
+      "Memory injection",
+      "Attacker text planted in the agent's memory, so it later reads as the agent's own past notes."
+    ],
+    [
+      "important_instructions, tool_knowledge",
+      "AgentDojo's attack templates: an urgent instruction addressed to the model, and one that also names the tools to call."
+    ],
+    [
+      "Plain agent",
+      "The benchmark's own tool-calling agent with no defense: the baseline taintwall is compared with."
+    ],
+    [
+      "Plans accepted",
+      "Share of plans written by a model that the taintwall plan language accepts as written."
+    ],
+    [
+      "95% CI",
+      "The range the true rate lies in with 95% confidence (Wilson interval). With 16 tasks it is wide."
+    ],
+    [
+      "pp",
+      "Percentage points: the difference between two percentages (60% to 70% is +10 pp)."
+    ],
+    [
+      "Better, worse, within noise",
+      "A change counts as better or worse only when the two 95% intervals do not overlap; otherwise it is within noise."
+    ],
+    [
+      "Kinds",
+      "baseline: the undefended reference; study: a measurement that informs a design decision; change: a patch without a new measurement; defense: taintwall itself measured."
+    ]
+  ],
+  "metrics": {
+    "agentdojo.banking.utility": {
+      "label": "Utility",
+      "group": "AgentDojo banking",
+      "better": "higher",
+      "help": "Share of normal tasks completed. Higher is better."
+    },
+    "agentdojo.banking.asr.important_instructions": {
+      "label": "ASR (important_instructions)",
+      "group": "AgentDojo banking",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "agentdojo.banking.asr.tool_knowledge": {
+      "label": "ASR (tool_knowledge)",
+      "group": "AgentDojo banking",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "agentdojo.banking.utility_under_attack.important_instructions": {
+      "label": "Utility under attack (important_instructions)",
+      "group": "AgentDojo banking",
+      "better": "higher",
+      "help": "Share of tasks completed while attacked. Higher is better."
+    },
+    "agentdojo.banking.utility_under_attack.tool_knowledge": {
+      "label": "Utility under attack (tool_knowledge)",
+      "group": "AgentDojo banking",
+      "better": "higher",
+      "help": "Share of tasks completed while attacked. Higher is better."
+    },
+    "craibench.chain.utility": {
+      "label": "Utility",
+      "group": "CrAIBench chain",
+      "better": "higher",
+      "help": "Share of normal tasks completed. Higher is better."
+    },
+    "craibench.chain.asr.prompt": {
+      "label": "ASR, prompt injection",
+      "group": "CrAIBench chain",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "craibench.chain.asr.memory": {
+      "label": "ASR, memory injection",
+      "group": "CrAIBench chain",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "craibench.dao_nft.utility": {
+      "label": "Utility",
+      "group": "CrAIBench dao_nft",
+      "better": "higher",
+      "help": "Share of normal tasks completed. Higher is better."
+    },
+    "craibench.dao_nft.asr.prompt": {
+      "label": "ASR, prompt injection",
+      "group": "CrAIBench dao_nft",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "craibench.dao_nft.asr.memory": {
+      "label": "ASR, memory injection",
+      "group": "CrAIBench dao_nft",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "craibench.crypto_trading.utility": {
+      "label": "Utility",
+      "group": "CrAIBench crypto_trading",
+      "better": "higher",
+      "help": "Share of normal tasks completed. Higher is better."
+    },
+    "craibench.crypto_trading.asr.prompt": {
+      "label": "ASR, prompt injection",
+      "group": "CrAIBench crypto_trading",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "craibench.crypto_trading.asr.memory": {
+      "label": "ASR, memory injection",
+      "group": "CrAIBench crypto_trading",
+      "better": "lower",
+      "help": "Attack success rate. Lower is better."
+    },
+    "plans.banking.accepted.natural": {
+      "label": "No rules in prompt",
+      "group": "Planner study: plans accepted (banking)",
+      "better": "higher",
+      "help": "Share of plans the plan language accepts. Higher is better."
+    },
+    "plans.banking.accepted.rules": {
+      "label": "Rules in prompt",
+      "group": "Planner study: plans accepted (banking)",
+      "better": "higher",
+      "help": "Share of plans the plan language accepts. Higher is better."
+    }
+  },
+  "series_colors": [
+    "Haiku 5.5",
+    "DeepSeek V3.2",
+    "Gemini 3.1 Flash Lite",
+    "Llama 4 Scout",
+    "GPT-5 mini"
+  ],
+  "patches": [
+    {
+      "id": "core-labels-interpreter",
+      "date": "2026-11-18",
+      "stage": "1",
+      "kind": "change",
+      "prs": [
+        12,
+        13,
+        14
+      ],
+      "commit": "d0ed10b",
+      "title": "Provenance labels and the explicit-flow interpreter",
+      "changed": "Labeled values with sources and readers; a plan interpreter for a checked Python subset that labels every value it computes; clean-code and mutation gates in CI.",
+      "why": "The core every later measurement depends on. No benchmark yet: the defense is not wired to a planner.",
+      "measurements": []
+    },
+    {
+      "id": "baseline-agentdojo-banking",
+      "date": "2026-11-18",
+      "stage": "0",
+      "kind": "baseline",
+      "prs": [
+        15
+      ],
+      "commit": "0be16cc",
+      "cost_usd": 0.17,
+      "title": "Baseline: plain agent on AgentDojo banking",
+      "changed": "First benchmark run: AgentDojo's undefended tool-calling agent, Haiku 5.5 through OpenRouter, all 16 banking tasks and 144 attack pairs.",
+      "question": "What does an agent without any defense score, so taintwall has something to beat?",
+      "result": "Utility 69%. The important_instructions attack never succeeds: Haiku 5.5 names the injected block and refuses it.",
+      "decision": "Prompt injection through tool output is not where this model fails; look for a stronger channel (tool_knowledge, memory).",
+      "report": "docs/baselines.md",
+      "measurements": [
+        {
+          "id": "ad-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/banking-haiku-5.5/summary-all-important_instructions.json",
+            "key": "utility"
+          }
+        },
+        {
+          "id": "ad-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/banking-haiku-5.5/summary-all-important_instructions.json",
+            "key": "asr"
+          }
+        },
+        {
+          "id": "ad-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/banking-haiku-5.5/summary-all-important_instructions.json",
+            "key": "utility_under_attack"
+          }
+        }
+      ]
+    },
+    {
+      "id": "baseline-tool-knowledge-craibench",
+      "date": "2026-11-18",
+      "stage": "0",
+      "kind": "baseline",
+      "prs": [
+        18
+      ],
+      "commit": "e056e46",
+      "cost_usd": 1.06,
+      "title": "Baseline: tool_knowledge attack and CrAIBench",
+      "changed": "A stronger AgentDojo attack (tool_knowledge) and the CrAIBench crypto suites (chain, dao_nft, crypto_trading) with prompt and memory injection, same plain agent.",
+      "question": "Is there an attack channel that works on this model, for taintwall to close?",
+      "result": "Prompt injection stays at 0–4%. Memory injection succeeds in 48–67% of pairs: CrAIBench inserts the planted memory as a user message, so the model takes attacker text for the owner's words.",
+      "decision": "Memory injection is the main comparison for contribution B (labels that persist in memory).",
+      "report": "docs/baselines.md",
+      "measurements": [
+        {
+          "id": "ad-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/banking-haiku-5.5/summary-all-tool_knowledge.json",
+            "key": "asr"
+          }
+        },
+        {
+          "id": "ad-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/banking-haiku-5.5/summary-all-tool_knowledge.json",
+            "key": "utility_under_attack"
+          }
+        },
+        {
+          "id": "cb-chain-utility",
+          "metric": "craibench.chain.utility",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-utility.json",
+            "key": "suites.chain.utility"
+          }
+        },
+        {
+          "id": "cb-chain-asr-prompt",
+          "metric": "craibench.chain.asr.prompt",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-security-important_instructions-prompt.json",
+            "key": "suites.chain.asr"
+          }
+        },
+        {
+          "id": "cb-chain-asr-memory",
+          "metric": "craibench.chain.asr.memory",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-security-important_instructions-memory.json",
+            "key": "suites.chain.asr"
+          }
+        },
+        {
+          "id": "cb-dao_nft-utility",
+          "metric": "craibench.dao_nft.utility",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-utility.json",
+            "key": "suites.dao_nft.utility"
+          }
+        },
+        {
+          "id": "cb-dao_nft-asr-prompt",
+          "metric": "craibench.dao_nft.asr.prompt",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-security-important_instructions-prompt.json",
+            "key": "suites.dao_nft.asr"
+          }
+        },
+        {
+          "id": "cb-dao_nft-asr-memory",
+          "metric": "craibench.dao_nft.asr.memory",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-security-important_instructions-memory.json",
+            "key": "suites.dao_nft.asr"
+          }
+        },
+        {
+          "id": "cb-crypto_trading-utility",
+          "metric": "craibench.crypto_trading.utility",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-utility.json",
+            "key": "suites.crypto_trading.utility"
+          }
+        },
+        {
+          "id": "cb-crypto_trading-asr-prompt",
+          "metric": "craibench.crypto_trading.asr.prompt",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-security-important_instructions-prompt.json",
+            "key": "suites.crypto_trading.asr"
+          }
+        },
+        {
+          "id": "cb-crypto_trading-asr-memory",
+          "metric": "craibench.crypto_trading.asr.memory",
+          "series": "plain agent · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/craibench/craibench-haiku-5.5/summary-security-important_instructions-memory.json",
+            "key": "suites.crypto_trading.asr"
+          }
+        }
+      ]
+    },
+    {
+      "id": "implicit-flows",
+      "date": "2026-11-19",
+      "stage": "1",
+      "kind": "change",
+      "prs": [
+        24
+      ],
+      "commit": "8f0f740",
+      "title": "Implicit flows: if, for and while, strict and lenient",
+      "changed": "Control flow in plans with a pc label; strict mode puts the conditions a value depends on into its label; every run-time failure carries the label of what it depends on. Stage 1 complete.",
+      "why": "Without it a plan could leak a secret through which branch it takes. Still no planner, so no benchmark change.",
+      "measurements": []
+    },
+    {
+      "id": "study-planner-plans",
+      "date": "2026-11-19",
+      "stage": "2",
+      "kind": "study",
+      "prs": [
+        26
+      ],
+      "commit": "570a043",
+      "cost_usd": 0.39,
+      "title": "Study: what Python planners write",
+      "changed": "Five models wrote plans for the 16 banking tasks, without and with the plan language stated in the prompt. Nothing executed.",
+      "question": "How much of what planners write does the plan language accept, and what must it add?",
+      "result": "Stating the language is the main lever (Haiku 0% → 88%, GPT-5 mini 0% → 62%). DeepSeek V3.2 ignores most rules (19%). String methods, number formats and `is None` survive the rules for every model.",
+      "decision": "Add those constructs in PR 1; the planner prompt states the rules; per-model output budgets (a first run with 2000 tokens, $0.18 of the cost, was discarded: hidden reasoning cut 15 of 160 replies).",
+      "report": "docs/planner-plans.md",
+      "measurements": [
+        {
+          "id": "plans-natural-haiku-5-5",
+          "metric": "plans.banking.accepted.natural",
+          "series": "Haiku 5.5",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "model": "anthropic/claude-haiku-5.5",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-haiku-5-5",
+          "metric": "plans.banking.accepted.rules",
+          "series": "Haiku 5.5",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "model": "anthropic/claude-haiku-5.5",
+            "key": "accepted"
+          },
+          "compare_to": "plans-natural-haiku-5-5"
+        },
+        {
+          "id": "plans-natural-deepseek-v3-2",
+          "metric": "plans.banking.accepted.natural",
+          "series": "DeepSeek V3.2",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "model": "deepseek/deepseek-v3.2",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-deepseek-v3-2",
+          "metric": "plans.banking.accepted.rules",
+          "series": "DeepSeek V3.2",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "model": "deepseek/deepseek-v3.2",
+            "key": "accepted"
+          },
+          "compare_to": "plans-natural-deepseek-v3-2"
+        },
+        {
+          "id": "plans-natural-gemini-3-1-flash-lite",
+          "metric": "plans.banking.accepted.natural",
+          "series": "Gemini 3.1 Flash Lite",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "model": "google/gemini-3.1-flash-lite",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-gemini-3-1-flash-lite",
+          "metric": "plans.banking.accepted.rules",
+          "series": "Gemini 3.1 Flash Lite",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "model": "google/gemini-3.1-flash-lite",
+            "key": "accepted"
+          },
+          "compare_to": "plans-natural-gemini-3-1-flash-lite"
+        },
+        {
+          "id": "plans-natural-llama-4-scout",
+          "metric": "plans.banking.accepted.natural",
+          "series": "Llama 4 Scout",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "model": "meta-llama/llama-4-scout",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-llama-4-scout",
+          "metric": "plans.banking.accepted.rules",
+          "series": "Llama 4 Scout",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "model": "meta-llama/llama-4-scout",
+            "key": "accepted"
+          },
+          "compare_to": "plans-natural-llama-4-scout"
+        },
+        {
+          "id": "plans-natural-gpt-5-mini",
+          "metric": "plans.banking.accepted.natural",
+          "series": "GPT-5 mini",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/census.json",
+            "model": "openai/gpt-5-mini",
+            "key": "accepted"
+          }
+        },
+        {
+          "id": "plans-rules-gpt-5-mini",
+          "metric": "plans.banking.accepted.rules",
+          "series": "GPT-5 mini",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/census.json",
+            "model": "openai/gpt-5-mini",
+            "key": "accepted"
+          },
+          "compare_to": "plans-natural-gpt-5-mini"
+        }
+      ]
+    }
+  ]
+}

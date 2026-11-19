@@ -208,14 +208,33 @@ def report(by_model: dict[str, Census]) -> str:
     return "\n".join(lines)
 
 
+def counts(by_model: dict[str, Census]) -> dict[str, dict[str, int]]:
+    """The rates' numerators and denominators per model, for ``census.json``."""
+    return {
+        model: {
+            "plans": data.plans,
+            "cut": data.cut,
+            "valid": data.valid,
+            "accepted": data.accepted,
+        }
+        for model, data in sorted(by_model.items())
+    }
+
+
 def main() -> int:
-    """Print the census of every model's plans in the given run directory."""
+    """Print the census of a run's plans and write its counts to ``census.json``.
+
+    ``census.json`` is what the measurements page reads; ``tests/test_journal.py``
+    recomputes it from the plans, so it cannot drift from them.
+    """
     directory = Path(sys.argv[1])
     offered = frozenset(json.loads((directory / "functions.json").read_text(encoding="utf-8")))
     by_model = {}
     for path in sorted(directory.glob("*.jsonl")):
         plans = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
         by_model[path.stem.replace("__", "/")] = census(plans, offered)
+    out = directory / "census.json"
+    out.write_text(json.dumps(counts(by_model), indent=2) + "\n", encoding="utf-8")
     print(report(by_model))  # noqa: T201 - CLI output
     return 0
 
