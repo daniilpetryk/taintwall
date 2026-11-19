@@ -18,6 +18,15 @@ succeeded). Lines are sorted, so a rerun that changes nothing changes no
 line. AgentDojo's file also has the injection tasks run as user tasks
 (`attack_type` null), which AgentDojo checks before attacking.
 
+**[`journal.json`](journal.json)** is the history of measurements, one
+entry per patch: what changed, the question, the result and the decision,
+and for each measurement the result file and key it comes from (values are
+never copied). The site's [measurements page](https://daniilpetryk.github.io/taintwall/measurements.html)
+is built from it as patch notes, with each number's change since it was last
+measured. A new result file without a journal entry fails
+`tests/test_journal.py`; so does a `census.json` that no longer matches its
+plans.
+
 `agentdojo/plans/<run>/` holds a study, not a baseline: the plans five
 models wrote for the banking tasks (one JSON line per task with the prompt,
 the reply, the extracted code, the finish reason and token counts), the

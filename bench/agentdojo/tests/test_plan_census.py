@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The plan census script: construct detection and rejection reasons."""
 
-from plan_census import census, report
+from plan_census import census, counts, report
 
 OFFERED = frozenset({"get_balance", "get_most_recent_transactions", "answer", "query_reader"})
 
@@ -50,3 +50,11 @@ def test_report_has_a_row_per_construct() -> None:
     assert "| if | 100% |" in text
     assert "| plans | 1 |" in text
     assert "| cut at the token limit | 0 |" in text
+
+
+def test_counts_are_the_rates_parts_per_model() -> None:
+    data = census([{"code": ALLOWED, "finish_reason": "stop"}, {"code": None}], OFFERED)
+    assert counts({"b/m": data, "a/m": data}) == {
+        "a/m": {"plans": 2, "cut": 0, "valid": 1, "accepted": 1},
+        "b/m": {"plans": 2, "cut": 0, "valid": 1, "accepted": 1},
+    }

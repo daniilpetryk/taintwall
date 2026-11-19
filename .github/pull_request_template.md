@@ -15,3 +15,4 @@ lines and duplicates (see `docs/code-quality.md`). Tick what only a reader can j
 - [ ] Tests check the property that matters (labels, typed errors), not only that code runs.
 - [ ] Security: untrusted text cannot reach the planner, errors or the trace; labels never get cleaner.
 - [ ] `docs/design.md` updated if a rule or decision changed.
+- [ ] A new measurement has a `bench/results/journal.json` entry whose question, result and decision say why it was run (CI checks the entry exists, not what it says).

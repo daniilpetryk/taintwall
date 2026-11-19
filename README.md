@@ -8,7 +8,7 @@ An agent with a wallet reads text that strangers write: token names, NFT metadat
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** stage 1 done. Provenance labels and the plan interpreter (`taintwall.core`), with explicit and implicit flows (strict and lenient), are implemented and property-tested; the planner and reader (stage 2) are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks).
+> **Status:** stage 1 done. Provenance labels and the plan interpreter (`taintwall.core`), with explicit and implicit flows (strict and lenient), are implemented and property-tested; the planner and reader (stage 2) are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks). Every benchmark run is in the **[measurements](https://daniilpetryk.github.io/taintwall/measurements.html)**: patch notes with each number's change since it was last measured.
 
 ## The attack it stops
 
