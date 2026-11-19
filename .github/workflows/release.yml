@@ -1,0 +1,50 @@
+name: release
+
+# Publishes a GitHub Release for a version tag on main, with the tag's
+# section of CHANGELOG.md as its notes. A pushed tag publishes itself;
+# workflow_dispatch publishes an existing tag (for tags made before this
+# workflow existed).
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to publish, for example v0.3.0"
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: check the tag
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version tag: $TAG"; exit 1; }
+          git merge-base --is-ancestor "refs/tags/$TAG" origin/main \
+            || { echo "$TAG is not on main"; exit 1; }
+      - name: notes from the changelog
+        run: |
+          python3 scripts/release_notes.py "${TAG#v}" > notes.md
+          python3 scripts/release_notes.py "${TAG#v}" --title > title.txt
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "$(cat title.txt)" --notes-file notes.md \
+            || gh release edit "$TAG" --title "$(cat title.txt)" --notes-file notes.md

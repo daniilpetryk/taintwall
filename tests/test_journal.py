@@ -135,6 +135,14 @@ def test_the_page_shows_every_patch_and_how_numbers_moved() -> None:
     assert "<code>is None</code>" in page  # inline code in the journal's prose
 
 
+def test_patches_name_real_releases_and_decisions() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    decisions = {path.name[:4] for path in (ROOT / "docs" / "decisions").glob("[0-9]*.md")}
+    for patch in JOURNAL["patches"]:
+        assert f"## [{patch['release']}]" in changelog, patch["id"]
+        assert set(patch["decisions"]) <= decisions, patch["id"]
+
+
 def test_highlights_and_stages_name_real_things() -> None:
     ids = {m["id"] for m in MEASUREMENTS}
     assert {item["measurement"] for item in JOURNAL["overview"]["highlights"]} <= ids

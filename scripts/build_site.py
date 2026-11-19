@@ -247,13 +247,36 @@ def stage_name(journal: Json, stage: object) -> str:
     return f"stage {_e(stage)} · {_e(name)}" if name else f"stage {_e(stage)}"
 
 
+DECISIONS = ROOT / "docs" / "decisions"
+
+
+def decision_links(numbers: list[str]) -> str:
+    """Links to the decision records a patch made or applied, by number."""
+    links = []
+    for number in numbers:
+        path = next(DECISIONS.glob(f"{number}-*.md"))
+        href = f"{REPO_URL}/blob/main/docs/decisions/{path.name}"
+        links.append(f'<a href="{href}">ADR {number}</a>')
+    return f"decisions: {', '.join(links)}" if links else ""
+
+
+def release_link(release: str) -> str:
+    """The release a patch shipped in, linked to its GitHub Release; not yet released on dev."""
+    if release == "Unreleased":
+        return '<span class="muted">not released yet</span>'
+    return f'<a href="{REPO_URL}/releases/tag/v{_e(release)}">v{_e(release)}</a>'
+
+
 def card_head(patch: Json, journal: Json) -> str:
     """Kind, date, stage, PRs and commit, then the title (a link to itself) and what changed."""
     prs = ", ".join(f'<a href="{REPO_URL}/pull/{pr}">#{pr}</a>' for pr in patch["prs"])
     commit = (
         f'<a href="{REPO_URL}/commit/{_e(patch["commit"])}"><code>{_e(patch["commit"])}</code></a>'
     )
-    meta = f"{_e(patch['date'])} · {stage_name(journal, patch['stage'])} · {prs} · {commit}"
+    meta = (
+        f"{_e(patch['date'])} · {release_link(patch['release'])} · "
+        f"{stage_name(journal, patch['stage'])} · {prs} · {commit}"
+    )
     badge = f'<span class="badge">{_e(patch["kind"])}</span>'
     title = f'<a class="self" href="#{_e(patch["id"])}">{_e(patch["title"])}</a>'
     return (
@@ -269,7 +292,10 @@ def patch_card(patch: Json, timeline: Timeline, order: list[str]) -> str:
     anchor = f'id="{_e(patch["id"])}"'
     if not patch["measurements"]:
         why = f"No new measurement. {_text(patch.get('why', ''))}"
-        return f'<article class="patch compact" {anchor}>{head}<p class="muted">{why}</p></article>'
+        links = decision_links(patch.get("decisions", []))
+        footer = f'<p class="muted">{links}</p>' if links else ""
+        content = f'{head}<p class="muted">{why}</p>{footer}'
+        return f'<article class="patch compact" {anchor}>{content}</article>'
     notes = "".join(
         f"<p><strong>{label}.</strong> {_text(patch[key])}</p>"
         for key, label in (("question", "Question"), ("result", "Result"), ("decision", "Decision"))
@@ -278,9 +304,10 @@ def patch_card(patch: Json, timeline: Timeline, order: list[str]) -> str:
     own = [timeline.by_id[m["id"]] for m in patch["measurements"]]
     tables = "".join(grid_table(grid, timeline, journal) for grid in grids(own, journal, order))
     extra = [f"cost ${patch['cost_usd']:.2f}"] if "cost_usd" in patch else []
+    extra.append(decision_links(patch.get("decisions", [])))
     if "report" in patch:
         extra.append(f'<a href="{REPO_URL}/blob/main/{_e(patch["report"])}">full report</a>')
-    footer = f'<p class="muted">{" · ".join(extra)}</p>'
+    footer = f'<p class="muted">{" · ".join(part for part in extra if part)}</p>'
     return f'<article class="patch" {anchor}>{head}{notes}{tables}{footer}</article>'
 
 
@@ -412,7 +439,10 @@ def measurements_page(journal: Json) -> str:
     spent = sum(float(patch.get("cost_usd", 0)) for patch in journal["patches"])
     toc = (
         '<p class="toc"><a href="#notes">Patch notes</a> · <a href="#now">Current numbers</a> · '
-        f'<a href="#trends">Trends</a> · spent on model calls so far: ${spent:.2f}</p>'
+        '<a href="#trends">Trends</a> · '
+        f'<a href="{REPO_URL}/blob/main/CHANGELOG.md">changelog</a> · '
+        f'<a href="{REPO_URL}/blob/main/docs/decisions/README.md">decision log</a> · '
+        f"spent on model calls so far: ${spent:.2f}</p>"
     )
     body = (
         f'{nav("measurements.html")}<main class="wrap"><h1>Measurements</h1>'
