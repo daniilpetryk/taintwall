@@ -25,17 +25,21 @@ RESULTS = ROOT / "bench" / "results"
 KINDS = {"baseline", "study", "change", "defense"}
 
 
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("build_site", ROOT / "scripts" / "build_site.py")
+def _load(name: str) -> ModuleType:
+    # The scripts import each other as siblings, as they do when run.
+    if str(ROOT / "scripts") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules["build_site"] = module
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
 
-build_site = _load()
+measurement_journal = _load("measurement_journal")
+build_site = _load("build_site")
 JOURNAL = json.loads((RESULTS / "journal.json").read_text(encoding="utf-8"))
 MEASUREMENTS = [m for patch in JOURNAL["patches"] for m in patch["measurements"]]
 
@@ -69,11 +73,11 @@ def test_measurements_name_known_metrics_and_earlier_references() -> None:
 
 @pytest.mark.parametrize("measurement", MEASUREMENTS, ids=lambda m: m["id"])
 def test_every_source_resolves_to_a_rate_with_its_interval(measurement: dict[str, object]) -> None:
-    rate = build_site.resolve(measurement["source"])
+    rate = measurement_journal.resolve(measurement["source"])
     assert 0 <= rate.successes <= rate.total
     assert rate.total > 0
     # The page's interval is the benchmark's: same formula as bench_common.stats.
-    low, high = build_site.wilson(rate.successes, rate.total)
+    low, high = measurement_journal.wilson(rate.successes, rate.total)
     assert (low, high) == pytest.approx((rate.low, rate.high))
 
 
@@ -122,11 +126,24 @@ def test_the_page_shows_every_patch_and_how_numbers_moved() -> None:
     page = build_site.measurements_page(JOURNAL)
     for patch in JOURNAL["patches"]:
         assert build_site.html.escape(patch["title"]) in page
-    assert "first measurement" in page
     assert "better, +88 pp" in page  # Haiku 5.5: rules in the prompt vs none
+    assert "within noise" in page
+    for term, _ in JOURNAL["glossary"]:
+        assert f"<dt>{build_site.html.escape(term)}</dt>" in page
+    for patch in JOURNAL["patches"]:
+        assert f'id="{patch["id"]}"' in page  # every card can be linked to
+    assert "<code>is None</code>" in page  # inline code in the journal's prose
 
 
-Rate = build_site.Rate
+def test_highlights_and_stages_name_real_things() -> None:
+    ids = {m["id"] for m in MEASUREMENTS}
+    assert {item["measurement"] for item in JOURNAL["overview"]["highlights"]} <= ids
+    assert {str(patch["stage"]) for patch in JOURNAL["patches"]} <= set(JOURNAL["stages"])
+    terms = {term for term, _ in JOURNAL["glossary"]}
+    assert {"Utility", "ASR", "95% CI", "pp"} <= terms
+
+
+Rate = measurement_journal.Rate
 
 
 @pytest.mark.parametrize(
@@ -141,9 +158,9 @@ Rate = build_site.Rate
 def test_changes_count_only_outside_the_intervals(
     old: object, new: object, better: str, kind: str
 ) -> None:
-    previous = build_site.Point(0, {"series": "s", "metric": "m"}, old)
-    assert build_site.compare(new, previous, better).kind == kind
-    assert build_site.compare(new, None, better).kind == "first"
+    previous = measurement_journal.Point(0, {"series": "s", "metric": "m"}, old)
+    assert measurement_journal.compare(new, previous, better).kind == kind
+    assert measurement_journal.compare(new, None, better).kind == "first"
 
 
 def test_the_site_has_both_pages(tmp_path: Path) -> None:

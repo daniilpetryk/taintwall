@@ -183,6 +183,8 @@ enable_error_code = [
 [tool.pyrefly]
 project-includes = ["src", "tests", "scripts"]
 python-version = "3.13"
+# The site scripts import each other as siblings, as they do when run.
+search-path = ["src", "scripts"]
 
 # --- import-linter: architecture contracts ----------------------------------
 # These encode security invariants of the design, not just tidiness.

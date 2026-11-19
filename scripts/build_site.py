@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Build the GitHub Pages site: the architecture diagrams and the measurements page.
 
-The measurements page reads like patch notes: one card per patch from
-``bench/results/journal.json``, newest first, with what changed, what was
-measured, and how each number moved since it was last measured (better,
-worse, or within noise when the 95% intervals overlap). Values are never
-copied into the journal: each measurement points at a committed result file
-and is read from it here, so the page cannot disagree with the data.
+The measurements page reads like patch notes: where the project stands, how
+to read the numbers, then one card per patch from ``bench/results/journal.json``
+(newest first) with what changed, what was measured, and how each number moved
+since it was last measured. The data model is ``measurement_journal``.
 
 Standard library only, so the Pages workflow needs no environment::
 
@@ -16,154 +14,26 @@ Standard library only, so the Pages workflow needs no environment::
 
 import dataclasses
 import html
-import json
-import math
+import re
 import sys
 from pathlib import Path
-from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
-JOURNAL = ROOT / "bench" / "results" / "journal.json"
+from measurement_journal import ROOT, Change, Json, Point, Timeline, load
+
 REPO_URL = "https://github.com/daniilpetryk/taintwall"
-Z_95 = 1.959963984540054
-"""Two-sided 95% normal quantile, as in ``bench_common.stats``."""
 SERIES_SLOTS = 8
 """Categorical colors of the reference palette, assigned in fixed order."""
 DASH = "&ndash;"
-
-type Json = dict[str, Any]
-
-
-@dataclasses.dataclass(frozen=True)
-class Rate:
-    """A measured rate: successes out of total, with its 95% Wilson interval."""
-
-    successes: int
-    total: int
-    low: float
-    high: float
-
-    @property
-    def value(self) -> float:
-        """The rate itself."""
-        return self.successes / self.total if self.total else 0.0
-
-
-def wilson(successes: int, total: int) -> tuple[float, float]:
-    """Wilson score interval, as ``bench_common.stats.wilson`` (no bench imports here)."""
-    if total == 0:
-        return 0.0, 1.0
-    rate = successes / total
-    z2 = Z_95 * Z_95
-    denominator = 1 + z2 / total
-    centre = (rate + z2 / (2 * total)) / denominator
-    margin = Z_95 * math.sqrt(rate * (1 - rate) / total + z2 / (4 * total * total)) / denominator
-    return max(0.0, centre - margin), min(1.0, centre + margin)
-
-
-def resolve(source: Json) -> Rate:
-    """Read a measurement's rate from the committed result file it points at."""
-    if "summary" in source:
-        node = json.loads((ROOT / source["summary"]).read_text(encoding="utf-8"))
-        for part in source["key"].split("."):
-            node = node[part]
-        return Rate(node["successes"], node["total"], node["ci95_low"], node["ci95_high"])
-    if "census" in source:
-        counts = json.loads((ROOT / source["census"]).read_text(encoding="utf-8"))
-        row = counts[source["model"]]
-        successes, total = row[source["key"]], row["plans"]
-        return Rate(successes, total, *wilson(successes, total))
-    message = f"unknown source {sorted(source)}"
-    raise ValueError(message)
-
-
-@dataclasses.dataclass(frozen=True)
-class Point:
-    """One measurement placed on the timeline: the index of its patch and its rate."""
-
-    patch: int
-    measurement: Json
-    rate: Rate
-
-    @property
-    def key(self) -> tuple[str, str]:
-        """What a later measurement of the same thing shares: metric and system."""
-        return str(self.measurement["metric"]), str(self.measurement["series"])
-
-
-@dataclasses.dataclass(frozen=True)
-class Change:
-    """How a measurement compares with the one it follows."""
-
-    kind: str
-    """``first``, ``better``, ``worse`` or ``noise``."""
-    delta: float = 0.0
-    against: str = ""
-
-
-def compare(rate: Rate, previous: Point | None, better: str, against: str = "") -> Change:
-    """Better or worse only when the intervals do not overlap; ``against`` names the reference."""
-    if previous is None:
-        return Change("first")
-    old = previous.rate
-    delta = rate.value - old.value
-    if rate.low <= old.high and old.low <= rate.high:
-        return Change("noise", delta, against)
-    improved = (delta > 0) == (better == "higher")
-    return Change("better" if improved else "worse", delta, against)
-
-
-@dataclasses.dataclass
-class Timeline:
-    """Every measurement of the journal with its rate and its change."""
-
-    journal: Json
-    points: list[Point] = dataclasses.field(default_factory=list)
-    changes: dict[str, Change] = dataclasses.field(default_factory=dict)
-    by_id: dict[str, Point] = dataclasses.field(default_factory=dict)
-
-    @classmethod
-    def of(cls, journal: Json) -> "Timeline":
-        """Resolve every measurement, in patch order."""
-        timeline = cls(journal)
-        for index, patch in enumerate(journal["patches"]):
-            for measurement in patch["measurements"]:
-                timeline.add(Point(index, measurement, resolve(measurement["source"])))
-        return timeline
-
-    def add(self, point: Point) -> None:
-        """Place ``point`` and work out its change against what it follows."""
-        previous = self.previous(point)
-        better = self.journal["metrics"][point.key[0]]["better"]
-        identifier = str(point.measurement["id"])
-        self.changes[identifier] = compare(
-            point.rate, previous, better, self.label(point, previous)
-        )
-        self.points.append(point)
-        self.by_id[identifier] = point
-
-    def previous(self, point: Point) -> Point | None:
-        """The explicit ``compare_to``, else the last measurement of the same thing."""
-        if "compare_to" in point.measurement:
-            return self.by_id[point.measurement["compare_to"]]
-        earlier = [other for other in self.points if other.key == point.key]
-        return earlier[-1] if earlier else None
-
-    def reference(self, previous: Point | None) -> str:
-        """Name a comparison: the other metric's label, or the patch measured before."""
-        if previous is None:
-            return ""
-        return f"#{self.journal['patches'][previous.patch]['prs'][-1]}"
-
-    def label(self, point: Point, previous: Point | None) -> str:
-        """``vs`` text: another metric is named by its label, the same one by its patch."""
-        if previous is not None and previous.key[0] != point.key[0]:
-            return str(self.journal["metrics"][previous.key[0]]["label"]).lower()
-        return self.reference(previous)
+_CODE = re.compile(r"`([^`]+)`")
 
 
 def _e(text: object) -> str:
     return html.escape(str(text))
+
+
+def _text(text: object) -> str:
+    """Escaped prose with `inline code` as code."""
+    return _CODE.sub(r"<code>\1</code>", _e(text))
 
 
 def _pct(value: float) -> str:
@@ -182,7 +52,6 @@ def slot(series: str, order: list[str]) -> int:
 
 
 CHANGE_TEXT = {
-    "first": ("", "first measurement", "neutral"),
     "noise": ("≈", "within noise", "neutral"),
     "better": ("▲", "better", "good"),
     "worse": ("▼", "worse", "critical"),
@@ -190,21 +59,91 @@ CHANGE_TEXT = {
 
 
 def change_chip(change: Change) -> str:
-    """The change cell: icon, label and delta, never color alone."""
-    icon, label, tone = CHANGE_TEXT[change.kind]
+    """Icon, label and delta of a change, never color alone; nothing for a first measurement."""
     if change.kind == "first":
-        return f'<span class="chip {tone}">{label}</span>'
+        return ""
+    icon, label, tone = CHANGE_TEXT[change.kind]
     delta = f"{100 * change.delta:+.0f} pp"
-    against = f' <span class="muted">vs {_e(change.against)}</span>'
     chip = f'<span aria-hidden="true">{icon}</span> {label}, {delta}'
-    return f'<span class="chip {tone}">{chip}</span>{against}'
+    return (
+        f'<span class="chip {tone}">{chip}</span>'
+        f'<span class="muted vs">vs {_e(change.against)}</span>'
+    )
 
 
-def rate_cells(rate: Rate) -> str:
-    """Value and interval cells of a table row."""
-    count = f'<span class="muted">({rate.successes}/{rate.total})</span>'
-    interval = f"{_pct(rate.low)}{DASH}{_pct(rate.high)}"
-    return f'<td class="num">{_pct(rate.value)} {count}</td><td class="num muted">{interval}</td>'
+def value_cell(point: Point, change: Change, note: str = "") -> str:
+    """A pivot cell: the rate, its count and interval, and its change if any."""
+    rate = point.rate
+    count = f'<span class="muted">{rate.successes}/{rate.total}</span>'
+    interval = f'<span class="muted ci">{_pct(rate.low)}{DASH}{_pct(rate.high)}</span>'
+    chip = change_chip(change) or '<span class="muted">&mdash;</span>'
+    return (
+        f'<td class="cell"><span class="value">{_pct(rate.value)}</span> {count}'
+        f"{interval}{note}<span class=change>{chip}</span></td>"
+    )
+
+
+def metric_head(spec: Json) -> str:
+    """A column head: the metric, its direction, and its meaning on hover."""
+    arrow = "↑ higher is better" if spec["better"] == "higher" else "↓ lower is better"
+    help_text = _e(spec.get("help", ""))
+    return (
+        f'<th scope="col"><span class="term" title="{help_text}">{_e(spec["label"])}</span>'
+        f'<span class="direction">{arrow}</span></th>'
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class Grid:
+    """One benchmark's measurements as a table: systems in rows, metrics in columns."""
+
+    group: str
+    metrics: list[str]
+    rows: dict[str, dict[str, Point]]
+
+
+def grids(points: list[Point], journal: Json, order: list[str]) -> list[Grid]:
+    """Group points by benchmark, keeping metric and system order stable."""
+    by_group: dict[str, Grid] = {}
+    for point in points:
+        metric, series = point.key
+        group = journal["metrics"][metric]["group"]
+        grid = by_group.setdefault(group, Grid(group, [], {}))
+        if metric not in grid.metrics:
+            grid.metrics.append(metric)
+        grid.rows.setdefault(series, {})[metric] = point
+    for grid in by_group.values():
+        ordered = sorted(grid.rows.items(), key=lambda item: slot(item[0], order))
+        grid.rows.clear()
+        grid.rows.update(ordered)
+    return list(by_group.values())
+
+
+def grid_table(grid: Grid, timeline: Timeline, journal: Json, *, with_patch: bool = False) -> str:
+    """A benchmark's table; with ``with_patch`` each cell names the PR that measured it."""
+    heads = "".join(metric_head(journal["metrics"][metric]) for metric in grid.metrics)
+    rows = []
+    for series, cells in grid.rows.items():
+        parts = [f'<th scope="row">{_e(series)}</th>']
+        for metric in grid.metrics:
+            point = cells.get(metric)
+            if point is None:
+                parts.append('<td class="cell muted">&mdash;</td>')
+                continue
+            note = _measured_in(journal, point) if with_patch else ""
+            parts.append(value_cell(point, timeline.changes[point.measurement["id"]], note))
+        rows.append(f"<tr>{''.join(parts)}</tr>")
+    head = f'<thead><tr><th scope="col">System</th>{heads}</tr></thead>'
+    caption = f"<caption>{_e(grid.group)}</caption>"
+    table = f'<table class="grid-table">{caption}{head}<tbody>{"".join(rows)}</tbody></table>'
+    return f'<div class="scroll">{table}</div>'
+
+
+def _measured_in(journal: Json, point: Point) -> str:
+    """A link from a current number to the patch card that measured it."""
+    patch = journal["patches"][point.patch]
+    link = f'<a href="#{_e(patch["id"])}">#{patch["prs"][-1]}</a>'
+    return f'<span class="muted ci">measured in {link}</span>'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -302,76 +241,88 @@ def legend(series: list[str], order: list[str]) -> str:
     return f'<ul class="legend">{items}</ul>'
 
 
-def card_head(patch: Json) -> str:
-    """Kind, date, stage, PRs and commit, then the title and what changed."""
+def stage_name(journal: Json, stage: object) -> str:
+    """``stage 1 · Core: labels and interpreter``."""
+    name = journal.get("stages", {}).get(str(stage))
+    return f"stage {_e(stage)} · {_e(name)}" if name else f"stage {_e(stage)}"
+
+
+def card_head(patch: Json, journal: Json) -> str:
+    """Kind, date, stage, PRs and commit, then the title (a link to itself) and what changed."""
     prs = ", ".join(f'<a href="{REPO_URL}/pull/{pr}">#{pr}</a>' for pr in patch["prs"])
     commit = (
         f'<a href="{REPO_URL}/commit/{_e(patch["commit"])}"><code>{_e(patch["commit"])}</code></a>'
     )
-    meta = f"{_e(patch['date'])} · stage {_e(patch['stage'])} · {prs} · {commit}"
+    meta = f"{_e(patch['date'])} · {stage_name(journal, patch['stage'])} · {prs} · {commit}"
     badge = f'<span class="badge">{_e(patch["kind"])}</span>'
+    title = f'<a class="self" href="#{_e(patch["id"])}">{_e(patch["title"])}</a>'
     return (
         f'<header>{badge}<span class="muted">{meta}</span></header>'
-        f"<h3>{_e(patch['title'])}</h3><p>{_e(patch['changed'])}</p>"
+        f"<h3>{title}</h3><p>{_text(patch['changed'])}</p>"
     )
 
 
-def card_table(patch: Json, timeline: Timeline) -> str:
-    """The measurements of a patch with their values, intervals and changes."""
-    rows = []
-    for measurement in patch["measurements"]:
-        spec = timeline.journal["metrics"][measurement["metric"]]
-        point = timeline.by_id[measurement["id"]]
-        chip = change_chip(timeline.changes[measurement["id"]])
-        rows.append(
-            f"<tr><td>{_e(spec['group'])}: {_e(spec['label'])}</td>"
-            f"<td>{_e(measurement['series'])}</td>{rate_cells(point.rate)}<td>{chip}</td></tr>"
-        )
-    head = (
-        "<thead><tr><th>Metric</th><th>System</th><th class=num>Value</th>"
-        "<th class=num>95% CI</th><th>Change</th></tr></thead>"
-    )
-    return f'<div class="scroll"><table>{head}<tbody>{"".join(rows)}</tbody></table></div>'
-
-
-def patch_card(patch: Json, timeline: Timeline) -> str:
+def patch_card(patch: Json, timeline: Timeline, order: list[str]) -> str:
     """One patch note: what changed, what was measured, how the numbers moved."""
-    head = card_head(patch)
+    journal = timeline.journal
+    head = card_head(patch, journal)
+    anchor = f'id="{_e(patch["id"])}"'
     if not patch["measurements"]:
-        why = f"No new measurement. {_e(patch.get('why', ''))}"
-        return f'<article class="patch compact">{head}<p class="muted">{why}</p></article>'
+        why = f"No new measurement. {_text(patch.get('why', ''))}"
+        return f'<article class="patch compact" {anchor}>{head}<p class="muted">{why}</p></article>'
     notes = "".join(
-        f"<p><strong>{label}.</strong> {_e(patch[key])}</p>"
+        f"<p><strong>{label}.</strong> {_text(patch[key])}</p>"
         for key, label in (("question", "Question"), ("result", "Result"), ("decision", "Decision"))
         if key in patch
     )
+    own = [timeline.by_id[m["id"]] for m in patch["measurements"]]
+    tables = "".join(grid_table(grid, timeline, journal) for grid in grids(own, journal, order))
     extra = [f"cost ${patch['cost_usd']:.2f}"] if "cost_usd" in patch else []
     if "report" in patch:
-        extra.append(f'<a href="{REPO_URL}/blob/main/{_e(patch["report"])}">report</a>')
+        extra.append(f'<a href="{REPO_URL}/blob/main/{_e(patch["report"])}">full report</a>')
     footer = f'<p class="muted">{" · ".join(extra)}</p>'
-    return f'<article class="patch">{head}{notes}{card_table(patch, timeline)}{footer}</article>'
+    return f'<article class="patch" {anchor}>{head}{notes}{tables}{footer}</article>'
 
 
-def scoreboard(timeline: Timeline) -> str:
-    """The latest value of every metric and system, with its last change."""
+def scoreboard(timeline: Timeline, order: list[str]) -> str:
+    """The latest value of every metric and system, one table per benchmark."""
     latest: dict[tuple[str, str], Point] = {}
     for point in timeline.points:
         latest[point.key] = point
-    rows = []
-    for (metric, series), point in sorted(latest.items(), key=lambda item: item[1].patch):
-        spec = timeline.journal["metrics"][metric]
-        pr = timeline.journal["patches"][point.patch]["prs"][-1]
-        chip = change_chip(timeline.changes[point.measurement["id"]])
-        rows.append(
-            f"<tr><td>{_e(spec['group'])}</td><td>{_e(spec['label'])}</td><td>{_e(series)}</td>"
-            f'{rate_cells(point.rate)}<td><a href="{REPO_URL}/pull/{pr}">#{pr}</a></td>'
-            f"<td>{chip}</td></tr>"
+    points = sorted(latest.values(), key=lambda point: point.patch)
+    tables = grids(points, timeline.journal, order)
+    return "".join(grid_table(grid, timeline, timeline.journal, with_patch=True) for grid in tables)
+
+
+def overview(timeline: Timeline) -> str:
+    """What the project is, its goal, where it stands, and the numbers that matter most."""
+    view = timeline.journal["overview"]
+    tiles = []
+    for item in view["highlights"]:
+        point = timeline.by_id[item["measurement"]]
+        rate, spec = point.rate, timeline.journal["metrics"][point.key[0]]
+        tiles.append(
+            f'<div class="tile"><span class="big">{_pct(rate.value)}</span>'
+            f'<span class="muted ci">95% CI {_pct(rate.low)}{DASH}{_pct(rate.high)} · '
+            f"{rate.successes}/{rate.total}</span>"
+            f'<span class="tile-label">{_e(spec["group"])}: {_e(spec["label"])}</span>'
+            f'<span class="muted">{_text(item["note"])}</span></div>'
         )
-    head = (
-        "<thead><tr><th>Benchmark</th><th>Metric</th><th>System</th><th class=num>Value</th>"
-        "<th class=num>95% CI</th><th>Measured in</th><th>Last change</th></tr></thead>"
+    return (
+        f'<p class="lede">{_text(view["what"])}</p>'
+        f'<p class="lede"><strong>Goal.</strong> {_text(view["goal"])} '
+        f"<strong>Now.</strong> {_text(view['now'])}</p>"
+        f'<div class="tiles">{"".join(tiles)}</div>'
     )
-    return f'<div class="scroll"><table>{head}<tbody>{"".join(rows)}</tbody></table></div>'
+
+
+def glossary(journal: Json) -> str:
+    """How to read the page: every term it uses."""
+    items = "".join(
+        f"<dt>{_e(term)}</dt><dd>{_text(text)}</dd>" for term, text in journal["glossary"]
+    )
+    summary = "<summary>How to read this page</summary>"
+    return f'<details class="glossary" open>{summary}<dl>{items}</dl></details>'
 
 
 def trends(timeline: Timeline, order: list[str]) -> str:
@@ -457,19 +408,19 @@ def measurements_page(journal: Json) -> str:
     """The patch-notes page for every measurement in the journal."""
     timeline = Timeline.of(journal)
     order: list[str] = journal["series_colors"]
-    cards = "".join(patch_card(patch, timeline) for patch in reversed(journal["patches"]))
+    cards = "".join(patch_card(patch, timeline, order) for patch in reversed(journal["patches"]))
     spent = sum(float(patch.get("cost_usd", 0)) for patch in journal["patches"])
-    lede = (
-        '<p class="lede">Patch notes for what we measure, newest first: what changed, what '
-        "was measured, and how each number moved since it was last measured. A change counts "
-        "as better or worse only when the 95% intervals do not overlap; otherwise it is within "
-        f"noise. Spent on model calls so far: ${spent:.2f}.</p>"
-        '<p class="lede"><a href="#now">Current numbers</a> · <a href="#trends">Trends</a></p>'
+    toc = (
+        '<p class="toc"><a href="#notes">Patch notes</a> · <a href="#now">Current numbers</a> · '
+        f'<a href="#trends">Trends</a> · spent on model calls so far: ${spent:.2f}</p>'
     )
     body = (
-        f'{nav("measurements.html")}<main class="wrap"><h1>Measurements</h1>{lede}'
-        f"<h2>Patch notes</h2>{cards}"
-        f'<h2 id="now">Current numbers</h2>{scoreboard(timeline)}'
+        f'{nav("measurements.html")}<main class="wrap"><h1>Measurements</h1>'
+        f"{overview(timeline)}{glossary(journal)}{toc}"
+        f'<h2 id="notes">Patch notes</h2><p class="muted">Newest first. Each table compares '
+        "a number with the last time the same thing was measured; &mdash; means it is the "
+        f"first measurement.</p>{cards}"
+        f'<h2 id="now">Current numbers</h2>{scoreboard(timeline, order)}'
         f'<h2 id="trends">Trends</h2>{trends(timeline, order)}</main>{TOOLTIP}'
     )
     return document("taintwall measurements", body, STYLE_PATH.read_text(encoding="utf-8"))
@@ -488,8 +439,7 @@ def main() -> int:
     """Write ``index.html`` and ``measurements.html`` into the given directory."""
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
-    journal = json.loads(JOURNAL.read_text(encoding="utf-8"))
-    (out / "measurements.html").write_text(measurements_page(journal), encoding="utf-8")
+    (out / "measurements.html").write_text(measurements_page(load()), encoding="utf-8")
     content = (ROOT / "docs" / "architecture.html").read_text(encoding="utf-8")
     (out / "index.html").write_text(architecture_page(content), encoding="utf-8")
     return 0
