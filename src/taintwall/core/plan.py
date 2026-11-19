@@ -8,8 +8,9 @@ function or class definitions, lambdas, attribute access to private names,
 method calls or anything else outside the language. Size and depth are
 bounded before evaluation, so a plan cannot exhaust memory or the stack.
 
-Stage 1, PR 2 covers straight-line plans (explicit flows). ``if``, ``for`` and
-the other control-flow constructs arrive with implicit-flow tracking.
+Control flow is ``if``/``elif``/``else``, ``for name in tuple``, ``while``,
+``break``, ``continue`` and ``pass``; loops have no ``else`` clause, and
+``break`` and ``continue`` must be inside a loop.
 """
 
 import ast
@@ -32,6 +33,12 @@ _ALLOWED_NODES: Final = frozenset(
         ast.Module,
         ast.Assign,
         ast.Expr,
+        ast.If,
+        ast.For,
+        ast.While,
+        ast.Break,
+        ast.Continue,
+        ast.Pass,
         ast.Name,
         ast.Load,
         ast.Store,
@@ -103,6 +110,7 @@ def parse_plan(source: str) -> Plan:
     _check_depth(tree)
     for node in ast.walk(tree):
         _check_node(node)
+    _check_loop_exits(tree)
     return Plan(source, tree)
 
 
@@ -127,6 +135,28 @@ def _check_node(node: ast.AST) -> None:
     check = _NODE_CHECKS.get(type(node))
     if check is not None:
         check(node)
+
+
+def _check_loop_exits(tree: ast.Module) -> None:
+    """Reject ``break`` and ``continue`` outside a loop.
+
+    Python reports this only when compiling, after ``ast.parse`` succeeded.
+    """
+    pending: list[tuple[ast.AST, bool]] = [(tree, False)]
+    while pending:
+        node, in_loop = pending.pop()
+        if isinstance(node, ast.Break | ast.Continue) and not in_loop:
+            raise _unsupported(node, "exit outside loop")
+        inner = in_loop or isinstance(node, ast.For | ast.While)
+        pending.extend((child, inner) for child in ast.iter_child_nodes(node))
+
+
+def _check_loop(node: ast.AST) -> None:
+    assert isinstance(node, ast.For | ast.While)  # noqa: S101 - dispatch guarantees the type
+    if node.orelse:
+        raise _unsupported(node, "loop else")
+    if isinstance(node, ast.For) and not isinstance(node.target, ast.Name):
+        raise _unsupported(node, "loop target")
 
 
 def _check_assign(node: ast.AST) -> None:
@@ -197,6 +227,8 @@ def _check_dict(node: ast.AST) -> None:
 
 _NODE_CHECKS: Final[dict[type[ast.AST], Callable[[ast.AST], None]]] = {
     ast.Assign: _check_assign,
+    ast.For: _check_loop,
+    ast.While: _check_loop,
     ast.Name: _check_name,
     ast.Attribute: _check_attribute,
     ast.Constant: _check_constant,

@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable, Mapping
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.builtins import BUILTINS
+from taintwall.core.interpreter.control import LabeledPlanError
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
 from taintwall.core.interpreter.trace import Result
@@ -64,10 +65,14 @@ class Toolbox:
     def call(self, node: ast.Call, name: str, arguments: Arguments, guard: Guard) -> Result:
         """Call tool ``name``; it must exist (``name in toolbox``)."""
         tool, stamp = self._tools[name]
+        # Read before the call: a limit hit here must stop the plan before
+        # the tool's side effect, and stage 3 checks these labels first.
+        inputs = [deep_label(item, guard) for item in arguments.all]
         result = _call_isolated(tool, arguments)
         if not isinstance(result, Labeled):
-            raise error_at(PlanErrorCode.TOOL_FAILED, node, name)
+            # Whether a tool fails depends on its environment, not only on
+            # its arguments, so the failure carries the tool's source.
+            raise LabeledPlanError(error_at(PlanErrorCode.TOOL_FAILED, node, name), stamp)
         # The stamp means a tool cannot launder data by returning it under a
         # trusted label it received.
-        inputs = (deep_label(item, guard) for item in arguments.all)
         return result.value, join_all(stamp, result.label, *inputs)

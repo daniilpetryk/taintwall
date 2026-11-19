@@ -233,13 +233,13 @@ containers = ["taintwall.core.interpreter"]
 layers = [
     "runtime",
     "evaluator",
-    "reads | literals | operations",
+    "reads | literals | operations | statements",
     "context",
     "tools",
     "builtins",
     "operators",
     "walk",
-    "limits | trace",
+    "limits | trace | control",
     "arguments | location",
 ]
 
