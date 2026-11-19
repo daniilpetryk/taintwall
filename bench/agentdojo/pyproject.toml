@@ -6,6 +6,7 @@ requires-python = ">=3.13,<3.14"
 license = "Apache-2.0"
 dependencies = [
     "agentdojo==0.1.35",
+    "taintwall",
     "taintwall-bench-common",
 ]
 
@@ -25,6 +26,7 @@ required-version = ">=0.13.7,<0.14"
 package = false
 
 [tool.uv.sources]
+taintwall = { path = "../..", editable = true }
 taintwall-bench-common = { path = "../common", editable = true }
 
 [tool.mypy]

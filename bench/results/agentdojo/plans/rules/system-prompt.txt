@@ -18,7 +18,8 @@ The program runs in a restricted Python subset. Use only:
 - `+ - * / // %`, comparisons (including `in`), `and`, `or`, `not`;
 - `record.field`, `items[0]`, `record["key"]`;
 - f-strings without format specs (`f"{x}"`, not `f"{x:.2f}"`);
-- calls to the functions below and to `len`, `abs`, `min`, `max`, `sum`.
+- calls to `query_reader`, `answer`, the functions below, and `len`, `abs`,
+  `min`, `max`, `sum`.
 
 Not allowed: imports, `def`, `class`, `lambda`, comprehensions, method calls (`s.lower()`, `d.get()`), slices, `+=`, `x[i] = v`, `try`, `is`, `**`. Values cannot be changed in place: build a new tuple with `items = items + (x,)`.
 

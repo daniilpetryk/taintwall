@@ -2,25 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """The plan census script: construct detection and rejection reasons."""
 
-import importlib.util
-import sys
-from pathlib import Path
-from types import ModuleType
+from plan_census import census, report
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "plan_census.py"
-
-
-def _load() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("plan_census", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["plan_census"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-census_module = _load()
+OFFERED = frozenset({"get_balance", "get_most_recent_transactions", "answer", "query_reader"})
 
 NATURAL = """\
 import datetime
@@ -33,14 +17,14 @@ ALLOWED = 'x = get_balance()\nif x > 1:\n    answer(f"{x}")\n'
 
 
 def test_counts_constructs_and_reasons() -> None:
-    plans = [
-        {"code": NATURAL},
+    plans: list[dict[str, object]] = [
+        {"code": NATURAL, "finish_reason": "length"},
         {"code": ALLOWED},
         {"code": None},
         {"code": "x = ("},
     ]
-    result = census_module.census(plans)
-    assert (result.plans, result.valid, result.accepted) == (4, 2, 1)
+    result = census(plans, OFFERED)
+    assert (result.plans, result.cut, result.valid, result.accepted) == (4, 1, 2, 1)
     features = result.features
     assert {"import", "comprehension", "x += 1", "method call", "f-string spec", "if"} <= set(
         features
@@ -56,12 +40,13 @@ def test_counts_constructs_and_reasons() -> None:
 
 def test_called_builtins_exclude_tools_and_own_functions() -> None:
     code = "def f(x):\n    return x\ny = round(f(get_balance()))\nanswer(str(y))\n"
-    result = census_module.census([{"code": code}])
+    result = census([{"code": code}], OFFERED)
     assert result.builtins == {"round": 1, "str": 1}
 
 
 def test_report_has_a_row_per_construct() -> None:
-    report = census_module.report({"m/a": census_module.census([{"code": ALLOWED}])})
-    assert "| accepted by parse_plan | 100% |" in report
-    assert "| if | 100% |" in report
-    assert "| plans | 1 |" in report
+    text = report({"m/a": census([{"code": ALLOWED, "finish_reason": "stop"}], OFFERED)})
+    assert "| accepted by parse_plan (95% CI) | 100% (21-100) |" in text
+    assert "| if | 100% |" in text
+    assert "| plans | 1 |" in text
+    assert "| cut at the token limit | 0 |" in text

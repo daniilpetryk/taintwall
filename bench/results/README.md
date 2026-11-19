@@ -20,7 +20,8 @@ line. AgentDojo's file also has the injection tasks run as user tasks
 
 `agentdojo/plans/<run>/` holds a study, not a baseline: the plans five
 models wrote for the banking tasks (one JSON line per task with the prompt,
-the reply and the extracted code) and the system prompt used. See
+the reply, the extracted code, the finish reason and token counts), the
+system prompt used and the functions it offered (`functions.json`). See
 [`docs/planner-plans.md`](../../docs/planner-plans.md).
 
 Transcripts and the response cache stay local in `bench/*/runs/`

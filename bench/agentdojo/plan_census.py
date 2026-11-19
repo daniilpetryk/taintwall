@@ -2,15 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Count which Python constructs collected plans use, and why taintwall rejects them.
 
-Reads the JSON lines written by ``bench/agentdojo/plans.py`` (one file per
-model) and prints a Markdown report: per model, the share of plans that are
-valid Python, that ``parse_plan`` accepts, the reasons it rejects the rest,
-the share of plans using each construct, and the methods and builtins they
-call. Nothing is executed.
+Reads the JSON lines written by ``plans.py`` (one file per model) and the
+run's ``functions.json``, and prints a Markdown report: per model, how many
+replies were cut at the token limit, the share of plans that are valid Python
+and that ``parse_plan`` accepts (with 95% Wilson intervals), the first reason
+it rejects the rest, the share of valid plans using each construct, and the
+methods and builtins they call. Nothing is executed.
 
-Usage::
+Usage (from the repo root)::
 
-    uv run python scripts/plan_census.py bench/results/agentdojo/plans/plans
+    make bench-census RUN=natural
 """
 
 import ast
@@ -23,27 +24,10 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Final
 
+from bench_common.stats import wilson
+
 from taintwall.core.errors import PlanError
 from taintwall.core.plan import parse_plan
-
-TOOLS: Final = frozenset(
-    {
-        "get_iban",
-        "send_money",
-        "schedule_transaction",
-        "update_scheduled_transaction",
-        "get_balance",
-        "get_most_recent_transactions",
-        "get_scheduled_transactions",
-        "read_file",
-        "get_user_info",
-        "update_password",
-        "update_user_info",
-        "query_reader",
-        "answer",
-    }
-)
-"""Functions the prompt offers; any other called name is a builtin or the plan's own."""
 
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
@@ -145,6 +129,7 @@ class Census:
     """Counts over one model's plans."""
 
     plans: int = 0
+    cut: int = 0
     valid: int = 0
     accepted: int = 0
     features: Counter[str] = dataclasses.field(default_factory=Counter)
@@ -153,10 +138,11 @@ class Census:
     methods: Counter[str] = dataclasses.field(default_factory=Counter)
 
 
-def census(plans: list[dict[str, object]]) -> Census:
-    """Counts over one model's plans."""
+def census(plans: list[dict[str, object]], offered: frozenset[str]) -> Census:
+    """Counts over one model's plans; ``offered`` are the functions the prompt named."""
     result = Census(plans=len(plans))
     for plan in plans:
+        result.cut += plan.get("finish_reason") == "length"
         code = plan["code"]
         if not isinstance(code, str):
             result.rejections["no code block"] += 1
@@ -174,7 +160,7 @@ def census(plans: list[dict[str, object]]) -> Census:
             result.rejections[reason] += 1
         result.features.update(name for name, check in FEATURES.items() if check(tree))
         defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
-        called = set(_called_names(tree)) - TOOLS - defined
+        called = set(_called_names(tree)) - offered - defined
         result.builtins.update(called)
         result.methods.update(set(_method_names(tree)))
     return result
@@ -188,6 +174,11 @@ def _percent(count: int, total: int) -> str:
     return f"{100 * count / total:.0f}%" if total else "-"
 
 
+def _interval(count: int, total: int) -> str:
+    low, high = wilson(count, total)
+    return f"{_percent(count, total)} ({100 * low:.0f}-{100 * high:.0f})" if total else "-"
+
+
 def report(by_model: dict[str, Census]) -> str:
     """The census as Markdown."""
     models = sorted(by_model)
@@ -198,8 +189,9 @@ def report(by_model: dict[str, Census]) -> str:
         lines.append(f"| {name} | {cells} |")
 
     row("plans", lambda data: str(data.plans))
-    row("valid Python", lambda data: _percent(data.valid, data.plans))
-    row("accepted by parse_plan", lambda data: _percent(data.accepted, data.plans))
+    row("cut at the token limit", lambda data: str(data.cut))
+    row("valid Python", lambda data: _interval(data.valid, data.plans))
+    row("accepted by parse_plan (95% CI)", lambda data: _interval(data.accepted, data.plans))
     for feature in FEATURES:
         row(feature, functools.partial(_feature_share, feature))
     sections = (
@@ -217,12 +209,13 @@ def report(by_model: dict[str, Census]) -> str:
 
 
 def main() -> int:
-    """Print the census of every model's plans in the given directory."""
+    """Print the census of every model's plans in the given run directory."""
     directory = Path(sys.argv[1])
+    offered = frozenset(json.loads((directory / "functions.json").read_text(encoding="utf-8")))
     by_model = {}
     for path in sorted(directory.glob("*.jsonl")):
         plans = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-        by_model[path.stem.replace("__", "/")] = census(plans)
+        by_model[path.stem.replace("__", "/")] = census(plans, offered)
     print(report(by_model))  # noqa: T201 - CLI output
     return 0
 
