@@ -24,11 +24,11 @@ class InvalidRequesterError(ValueError):
         super().__init__("requester must be the owner or a precise principal source")
 
 
-class InvalidFlowsError(TypeError):
+class InvalidFlowsError(ValueError):
     """The implicit-flow mode is not an ``ImplicitFlows`` member."""
 
     def __init__(self) -> None:
-        super().__init__("flows must be an ImplicitFlows member, not a string")
+        super().__init__("flows must be an ImplicitFlows member")
 
 
 class Interpreter:

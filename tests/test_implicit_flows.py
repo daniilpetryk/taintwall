@@ -345,7 +345,7 @@ class TestMode:
     def test_only_a_mode_member_is_accepted(self, mode: object) -> None:
         with pytest.raises(InvalidFlowsError) as err:
             Interpreter(TOOLS, requester=OWNER, mint=MINT, flows=mode)  # type: ignore[arg-type]
-        assert str(err.value) == "flows must be an ImplicitFlows member, not a string"
+        assert str(err.value) == "flows must be an ImplicitFlows member"
 
 
 def _nested() -> Labeled[object]:
@@ -437,3 +437,61 @@ class TestNestedTruth:
 def run_nested(plan: str) -> RunResult:
     interpreter = Interpreter({**TOOLS, "nested": _nested}, requester=OWNER, mint=MINT)
     return interpreter.run(parse_plan(plan))
+
+
+def _chain(depth: int) -> Tool:
+    def tool() -> Labeled[object]:
+        value: Labeled[object] = Labeled(1, Label.of(ITEM))
+        for _ in range(depth):
+            value = Labeled(value, Label.of(FLAG))
+        return value
+
+    return tool
+
+
+class TestDeepWrappers:
+    def test_a_deep_chain_compares_without_recursion(self) -> None:
+        interpreter = Interpreter({**TOOLS, "deep": _chain(5000)}, requester=OWNER, mint=MINT)
+        x = interpreter.run(parse_plan("x = deep() == 1")).variables["x"]
+        assert x.value is True
+        assert {ITEM, FLAG} <= x.label.sources
+
+    def test_unwrapping_draws_on_the_read_budget(self) -> None:
+        limits = Limits(max_visits=50)
+        interpreter = Interpreter(
+            {**TOOLS, "deep": _chain(100)}, requester=OWNER, mint=MINT, limits=limits
+        )
+        for plan in ("x = 0\nif deep():\n    x = 1", "x = not deep()"):
+            with pytest.raises(LabeledPlanError) as err:
+                interpreter.run(parse_plan(plan))
+            assert err.value.code is PlanErrorCode.STEP_LIMIT
+
+
+class TestCallOrder:
+    def test_argument_labels_are_read_before_the_call(self) -> None:
+        calls: list[object] = []
+
+        def send(value: Labeled[object]) -> Labeled[object]:
+            calls.append(value)
+            return Labeled(value=True, label=Label.of(ITEM))
+
+        plan = "t = (1,) * 1000\nu = (t,) * 1000\nx = send(u)"
+        interpreter = Interpreter({**TOOLS, "send": send}, requester=OWNER, mint=MINT)
+        with pytest.raises(LabeledPlanError) as err:
+            interpreter.run(parse_plan(plan))
+        assert (err.value.code, err.value.line) == (PlanErrorCode.STEP_LIMIT, 3)
+        assert calls == []
+
+
+def test_a_step_limit_carries_conditions_found_only_inside_wrappers() -> None:
+    # The inner label of a nested test is in no trace event, only in the
+    # condition (no value is made under it), so the run's condition history
+    # must reach the failure.
+    plan = "x = 0\nif nested():\n    pass\ny = 1 + 1 + 1 + 1 + 1 + 1 + 1"
+    interpreter = Interpreter(
+        {**TOOLS, "nested": _nested}, requester=OWNER, mint=MINT, limits=Limits(max_steps=8)
+    )
+    with pytest.raises(LabeledPlanError) as err:
+        interpreter.run(parse_plan(plan))
+    assert (err.value.code, err.value.line) == (PlanErrorCode.STEP_LIMIT, 4)
+    assert ITEM in err.value.label.sources

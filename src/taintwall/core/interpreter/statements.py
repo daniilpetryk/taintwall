@@ -82,15 +82,21 @@ def _expression(scope: Scope, node: ast.stmt) -> Signal:
 
 def _if(scope: Scope, node: ast.stmt) -> Signal:
     assert isinstance(node, ast.If)  # noqa: S101 - dispatch guarantees the type
-    test = scope.attempt(lambda: scope.expr(node.test))
-    holds, label = truth(test.labeled)
-    condition = Dependence.on(label, test.id)
+    test, holds, label = scope.attempt(lambda: _test(scope, node.test))
+    condition = Dependence.on(label, test)
     with scope.flow.branch(condition):
         signal = block(scope, node.body if holds else node.orelse)
     _settle(scope, node, condition)
     if scope.flow.leaves_loop(node):
         scope.flow.exit(condition)
     return signal
+
+
+def _test(scope: Scope, node: ast.expr) -> tuple[int, bool, Label]:
+    """Evaluate a test: its trace id, whether it holds, and what that depends on."""
+    test = scope.expr(node)
+    holds, label = truth(test.labeled, scope.guard)
+    return test.id, holds, label
 
 
 def _for(scope: Scope, node: ast.stmt) -> Signal:
@@ -102,7 +108,7 @@ def _for(scope: Scope, node: ast.stmt) -> Signal:
     def start() -> tuple[Ref, tuple[object, ...], Label]:
         _check_target(scope, name, node)
         source = scope.expr(node.iter)
-        items, container = unwrap(source.labeled)
+        items, container = unwrap(source.labeled, scope.guard)
         if type(items) is not tuple:
             raise error_at(PlanErrorCode.TYPE_MISMATCH, node.iter)
         return source, items, container
@@ -138,9 +144,8 @@ def _while(scope: Scope, node: ast.stmt) -> Signal:
     with scope.flow.loop(frame):
         while True:
             scope.guard.at(node)
-            test = scope.attempt(lambda: scope.expr(node.test))
-            holds, label = truth(test.labeled)
-            frame.extend(Dependence.on(label, test.id))
+            test, holds, label = scope.attempt(lambda: _test(scope, node.test))
+            frame.extend(Dependence.on(label, test))
             scope.flow.grow()
             if not holds or block(scope, node.body) is Signal.BREAK:
                 break

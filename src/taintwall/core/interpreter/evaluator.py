@@ -141,9 +141,11 @@ class Evaluator:
             failure = err
         # Raised outside the handler, so no exception chain rides along.
         labels = [self._literal_label, *labels_within(self._touched)]
+        history = self._flow.history
         if self._flow.strict and failure.code is PlanErrorCode.STEP_LIMIT:
             labels.extend(self._trace.labels())
-            labels.extend(label for label in (self._flow.history,) if label is not None)
+            if history is not None:
+                labels.append(history)
         raise LabeledPlanError.of(failure, self._flow.value_label(join_all(*labels)))
 
     def bind(self, name: str, ref: Ref, node: ast.stmt) -> None:

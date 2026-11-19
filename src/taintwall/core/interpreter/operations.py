@@ -38,7 +38,7 @@ def unary_op(context: Context, node: ast.expr) -> Ref:
     assert isinstance(node, ast.UnaryOp)  # noqa: S101 - dispatch guarantees the type
     operand = context.expr(node.operand)
     origin = Origin(EventKind.OPERATION, node, type(node.op).__name__, (operand.id,))
-    return context.new(unary(node, operand.labeled), origin)
+    return context.new(unary(node, operand.labeled, context.guard), origin)
 
 
 def comparison(context: Context, node: ast.expr) -> Ref:
@@ -57,7 +57,7 @@ def boolean(context: Context, node: ast.expr) -> Ref:
     evaluated: list[Ref] = []
     for operand in node.values:
         evaluated.append(context.expr(operand))
-        if truth(evaluated[-1].labeled)[0] is stop_on_true:
+        if truth(evaluated[-1].labeled, context.guard)[0] is stop_on_true:
             break
     label = join_all(*(deep_label(ref.labeled, context.guard) for ref in evaluated))
     chosen = evaluated[-1].labeled.value

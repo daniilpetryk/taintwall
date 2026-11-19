@@ -40,6 +40,8 @@ ALTERED: Mapping[str, object] = {
     "f": "s" * 40,
 }
 LIMITS = {"max_string": 30, "max_visits": 400}
+WRAPPER = Label.of(Source.tool("wrapper"))
+"""Outer label of ``d``, which arrives nested: ``Labeled(Labeled(d, src_d), wrapper)``."""
 _LEAVES = (*NAMES, "x", "y", "i", "0", "1", "2", "'t'", "True", "src_e()", "src_f()")
 _OPERATORS = ("+", "-", "//", "==", "<", "and", "or")
 
@@ -119,7 +121,9 @@ def _outcome(plan: str, values: Mapping[str, object], steps: int) -> tuple[Outco
         def tool() -> Labeled[object]:
             if values[name] == "fail":
                 raise RuntimeError
-            return Labeled(values[name], Label.of(Source.tool(f"src_{name}")))
+            value = Labeled(values[name], Label.of(Source.tool(f"src_{name}")))
+            # ``d`` comes wrapped: its source is only on the inner value.
+            return Labeled(value, WRAPPER) if name == "d" else value
 
         return tool
 

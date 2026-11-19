@@ -15,22 +15,24 @@ from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled, join_all
 from taintwall.core.values import Record
 
 
-def unwrap(labeled: Labeled[object]) -> tuple[object, Label]:
+def unwrap(labeled: Labeled[object], guard: Guard) -> tuple[object, Label]:
     """The value inside nested ``Labeled`` wrappers, with every wrapper's label.
 
     A tool may return ``Labeled(Labeled(False, a), b)``; deciding on the
-    outer object would treat it as true and miss ``a``.
+    outer object would treat it as true and miss ``a``. Each wrapper read
+    draws on the budget.
     """
     value, labels = labeled.value, [labeled.label]
     while isinstance(value, Labeled):
+        guard.visit()
         labels.append(value.label)
         value = value.value
     return value, join_all(*labels)
 
 
-def truth(labeled: Labeled[object]) -> tuple[bool, Label]:
+def truth(labeled: Labeled[object], guard: Guard) -> tuple[bool, Label]:
     """Truthiness and what it depends on: emptiness only, so container labels."""
-    value, label = unwrap(labeled)
+    value, label = unwrap(labeled, guard)
     return bool(value), label
 
 
@@ -48,8 +50,11 @@ def children(value: object) -> tuple[object, ...]:
 def plain(value: object, guard: Guard) -> object:
     """The value with every nested label removed, for computing and comparing."""
     guard.visit()
-    if isinstance(value, Labeled):
-        return plain(value.value, guard)
+    # Iterative through wrappers: a tool can nest them far deeper than the
+    # stack; containers recurse at most MAX_VALUE_DEPTH levels.
+    while isinstance(value, Labeled):
+        guard.visit()
+        value = value.value
     if type(value) is tuple:
         return tuple(plain(item, guard) for item in value)
     if isinstance(value, Record):
