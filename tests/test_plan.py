@@ -52,9 +52,6 @@ def test_accepts_the_language(source: str) -> None:
         "def f(): pass",
         "x = lambda: 1",
         "class A: pass",
-        "if x: pass",
-        "for x in y: pass",
-        "while True: pass",
         "x = 1 if y else 2",
         "x = [a for a in b]",
         "x = {1, 2}",
@@ -96,6 +93,16 @@ def test_accepts_the_language(source: str) -> None:
         "x = {a: 2}",
         "x = a is b",
         "async def f(): pass",
+        "async for x in y:\n    pass",
+        "for x in y:\n    pass\nelse:\n    pass",
+        "while x:\n    pass\nelse:\n    pass",
+        "for a, b in y:\n    pass",
+        "for r.x in y:\n    pass",
+        "for _x in y:\n    pass",
+        "break",
+        "continue",
+        "if x:\n    break",
+        "while x:\n    pass\nbreak",
     ],
 )
 def test_rejects_everything_outside_the_language(source: str) -> None:
@@ -138,3 +145,35 @@ def test_error_details_come_from_the_plan_only() -> None:
         parse_plan("import os")
     assert err.value.detail == "Import"
     assert str(err.value) == "unsupported at line 1 (Import)"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "if x:\n    y = 1\nelif z:\n    y = 2\nelse:\n    pass",
+        "for x in y:\n    if x:\n        break\n    continue",
+        "while x:\n    for y in z:\n        break\n    break",
+    ],
+)
+def test_accepts_control_flow(source: str) -> None:
+    parse_plan(source)
+
+
+def test_exit_outside_a_loop_reports_its_line() -> None:
+    with pytest.raises(PlanError) as err:
+        parse_plan("x = 1\nif x:\n    continue")
+    assert (err.value.line, err.value.detail) == (3, "exit outside loop")
+
+
+@pytest.mark.parametrize(
+    ("source", "detail"),
+    [
+        ("x = 1\nfor x in y:\n    pass\nelse:\n    pass", "loop else"),
+        ("x = 1\nwhile x:\n    pass\nelse:\n    pass", "loop else"),
+        ("x = 1\nfor a, b in y:\n    pass", "loop target"),
+    ],
+)
+def test_loop_shapes_report_line_and_detail(source: str, detail: str) -> None:
+    with pytest.raises(PlanError) as err:
+        parse_plan(source)
+    assert (err.value.line, err.value.detail) == (2, detail)

@@ -7,10 +7,33 @@ structure draws from the run's read budget, because repetition shares
 references and a small plan can build a value with very many paths.
 """
 
+from collections.abc import Callable, Iterable, Iterator
+
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled, join_all
 from taintwall.core.values import Record
+
+
+def unwrap(labeled: Labeled[object], guard: Guard) -> tuple[object, Label]:
+    """The value inside nested ``Labeled`` wrappers, with every wrapper's label.
+
+    A tool may return ``Labeled(Labeled(False, a), b)``; deciding on the
+    outer object would treat it as true and miss ``a``. Each wrapper read
+    draws on the budget.
+    """
+    value, labels = labeled.value, [labeled.label]
+    while isinstance(value, Labeled):
+        guard.visit()
+        labels.append(value.label)
+        value = value.value
+    return value, join_all(*labels)
+
+
+def truth(labeled: Labeled[object], guard: Guard) -> tuple[bool, Label]:
+    """Truthiness and what it depends on: emptiness only, so container labels."""
+    value, label = unwrap(labeled, guard)
+    return bool(value), label
 
 
 def children(value: object) -> tuple[object, ...]:
@@ -27,8 +50,11 @@ def children(value: object) -> tuple[object, ...]:
 def plain(value: object, guard: Guard) -> object:
     """The value with every nested label removed, for computing and comparing."""
     guard.visit()
-    if isinstance(value, Labeled):
-        return plain(value.value, guard)
+    # Iterative through wrappers: a tool can nest them far deeper than the
+    # stack; containers recurse at most MAX_VALUE_DEPTH levels.
+    while isinstance(value, Labeled):
+        guard.visit()
+        value = value.value
     if type(value) is tuple:
         return tuple(plain(item, guard) for item in value)
     if isinstance(value, Record):
@@ -38,15 +64,38 @@ def plain(value: object, guard: Guard) -> object:
 
 def deep_label(labeled: Labeled[object], guard: Guard) -> Label:
     """The label of a value joined with the label of everything nested in it."""
-    labels = [labeled.label]
-    pending: list[object] = [labeled.value]
+    return join_all(labeled.label, *_nested_labels([labeled.value], guard.visit))
+
+
+def labels_within(values: Iterable[Labeled[object]]) -> Iterator[Label]:
+    """Every label in ``values``, nested ones included, each shared value once.
+
+    Used only when a run has already failed, so it draws on no budget; it
+    visits each distinct object once, which the run's sizes already bound.
+    """
+    return _nested_labels(values, lambda: None, once=True)  # pragma: no mutate - result unused
+
+
+def _nested_labels(
+    values: Iterable[object], visit: Callable[[], None], *, once: bool = False
+) -> Iterator[Label]:
+    """Labels of ``values`` and everything nested in them, depth first.
+
+    ``visit`` is called per element read. ``once`` skips an object already
+    read; budgeted walks read every path, which is what the budget counts.
+    """
+    seen: set[int] = set()
+    pending = list(values)
     while pending:
-        guard.visit()
+        visit()
         item = pending.pop()
+        if once:
+            if id(item) in seen:
+                continue
+            seen.add(id(item))
         if isinstance(item, Labeled):
-            labels.append(item.label)
+            yield item.label
         pending.extend(children(item))
-    return join_all(*labels)
 
 
 def check_nesting(value: object, guard: Guard) -> None:
