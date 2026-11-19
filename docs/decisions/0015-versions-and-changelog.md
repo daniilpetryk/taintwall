@@ -10,7 +10,7 @@ Releases were merge commits on `main` without names, so there was no way to say 
 
 ## Decision
 
-Each release to `main` is tagged `vX.Y.Z`. Before 1.0 the minor version counts releases and there is no stable API. `CHANGELOG.md` holds one section per version (what it is for, what changed, what it measured); the release workflow publishes that section as the GitHub Release, so notes are written once. Past releases were tagged after the fact: v0.1.0 (design and skeleton), v0.2.0 (stage 0 and first half of stage 1), v0.3.0 (stage 1).
+A release to `main` happens when a stage is complete, not per PR: work in progress stays on `dev`, and a release is a coherent step an outside reader can follow. Each release is tagged `vX.Y.Z`. Before 1.0 the minor version counts releases and there is no stable API. `CHANGELOG.md` holds one section per version (what it is for, what changed, what it measured); the release workflow publishes that section as the GitHub Release, so notes are written once. Past releases were tagged after the fact: v0.1.0 (design and skeleton), v0.2.0 (stage 0 and first half of stage 1), v0.3.0 (stage 1).
 
 ## Consequences
 

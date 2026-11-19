@@ -1,6 +1,6 @@
 # Changelog
 
-Every release to `main`, newest first. Each one is a git tag (`vX.Y.Z`) and a
+Every release to `main`, newest first; there is one release per completed stage. Each one is a git tag (`vX.Y.Z`) and a
 GitHub Release whose notes are the section below: what the release is for,
 what changed, and what it measured. Numbers live in the
 [measurements](https://daniilpetryk.github.io/taintwall/measurements.html);
@@ -12,7 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Stage 2 (planner and reader) has started.
+Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when complete.
 
 ### Added
 - Study of what Python planners write: five models, the 16 AgentDojo banking
