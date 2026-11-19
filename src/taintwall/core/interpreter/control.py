@@ -59,6 +59,13 @@ class LabeledPlanError(PlanError):
         super().__init__(error.code, error.line, error.detail)
         self.label = label
 
+    @classmethod
+    def of(cls, error: PlanError, label: Label) -> Self:
+        """``error`` with ``label`` joined to any label it already carries."""
+        if isinstance(error, LabeledPlanError):
+            label = label.join(error.label)
+        return cls(error, label)
+
 
 @dataclasses.dataclass(slots=True)
 class Dependence:
@@ -105,9 +112,35 @@ class Flow:
 
     def __init__(self, mode: ImplicitFlows) -> None:
         self.strict = mode is ImplicitFlows.STRICT
-        self.pc = Dependence()
+        self._pc = Dependence()
+        self._history: Label | None = None
         self._loops: list[Dependence] = []
         self._absent: dict[str, Label] = {}
+        self._exits: dict[ast.If, bool] = {}
+        self._assigned: dict[ast.stmt, tuple[str, ...]] = {}
+
+    @property
+    def pc(self) -> Dependence:
+        """Conditions the current statement depends on."""
+        return self._pc
+
+    @pc.setter
+    def pc(self, pc: Dependence) -> None:
+        self._pc = pc
+        if pc.label is not None:
+            known = self._history
+            self._history = pc.label if known is None else known.join(pc.label)
+
+    @property
+    def history(self) -> Label | None:
+        """Every condition the run has depended on so far.
+
+        How many steps a run used depends on every branch it took (and on
+        the data it evaluated), so a failure on the shared budget
+        (``STEP_LIMIT``) depends on all of them, not only on the pc of the
+        statement that hit it.
+        """
+        return self._history
 
     def value_label(self, label: Label) -> Label:
         """The label a value created now gets, or a failure that depends on ``label``."""
@@ -147,7 +180,20 @@ class Flow:
     def skipped(self, name: str, label: Label) -> None:
         """A block that may have assigned ``name`` did not: its absence is labeled."""
         known = self._absent.get(name)
-        self._absent[name] = label if known is None else known.join(label)
+        if known is None or not known.covers(label):
+            self._absent[name] = label if known is None else known.join(label)
+
+    def leaves_loop(self, node: ast.If) -> bool:
+        """Whether ``node`` holds a ``break`` or ``continue`` of the enclosing loop."""
+        if node not in self._exits:
+            self._exits[node] = exits_loop((*node.body, *node.orelse))
+        return self._exits[node]
+
+    def assigned(self, node: ast.stmt) -> tuple[str, ...]:
+        """Variables ``node`` may assign, sorted, computed once per node."""
+        if node not in self._assigned:
+            self._assigned[node] = tuple(sorted(assigned_names(node)))
+        return self._assigned[node]
 
 
 def assigned_names(node: ast.stmt) -> frozenset[str]:

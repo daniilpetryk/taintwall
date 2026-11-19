@@ -21,7 +21,7 @@ from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
 from taintwall.core.interpreter.trace import Result
-from taintwall.core.interpreter.walk import deep_label, plain
+from taintwall.core.interpreter.walk import deep_label, plain, truth
 from taintwall.core.labels import Labeled, join_all
 
 NUMBERS: Final = frozenset({int, float})
@@ -88,7 +88,8 @@ def unary(node: ast.UnaryOp, operand: Labeled[object]) -> Result:
     inner = operand.value
     if isinstance(node.op, ast.Not):
         # Truthiness depends on emptiness only (``Record`` has ``len``), like ``len``.
-        return not inner, operand.label
+        holds, label = truth(operand)
+        return not holds, label
     if type(inner) in NUMBERS:
         # Negating a finite int or float cannot fail.
         return _SIGN[type(node.op)](inner), operand.label

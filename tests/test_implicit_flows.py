@@ -11,6 +11,7 @@ from taintwall.core.interpreter import (
     EventKind,
     ImplicitFlows,
     Interpreter,
+    InvalidFlowsError,
     LabeledPlanError,
     Limits,
     RunResult,
@@ -340,11 +341,99 @@ class TestMode:
         result = interpreter.run(parse_plan("x = 0\nif off():\n    x = 1"))
         assert OFF in result.variables["x"].label.sources
 
-    def test_the_mode_may_be_given_by_name(self) -> None:
-        interpreter = Interpreter(TOOLS, requester=OWNER, mint=MINT, flows="lenient")  # type: ignore[arg-type]
-        result = interpreter.run(parse_plan("x = 0\nif off():\n    x = 1"))
-        assert OFF not in result.variables["x"].label.sources
+    @pytest.mark.parametrize("mode", ["lenient", "strict", "loose", True])
+    def test_only_a_mode_member_is_accepted(self, mode: object) -> None:
+        with pytest.raises(InvalidFlowsError) as err:
+            Interpreter(TOOLS, requester=OWNER, mint=MINT, flows=mode)  # type: ignore[arg-type]
+        assert str(err.value) == "flows must be an ImplicitFlows member, not a string"
 
-    def test_an_unknown_mode_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="loose"):
-            Interpreter(TOOLS, requester=OWNER, mint=MINT, flows="loose")  # type: ignore[arg-type]
+
+def _nested() -> Labeled[object]:
+    return Labeled(Labeled(value=False, label=Label.of(ITEM)), Label.of(FLAG))
+
+
+def _secret(value: int) -> Tool:
+    return _constant(value, LIMIT)
+
+
+def _fails() -> Labeled[object]:
+    raise RuntimeError
+
+
+class TestFailureChannels:
+    LOOP = "n = 0\nwhile n < limit():\n    n = n + 1\nx = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1"
+
+    def run_with(self, plan: str, tools: Mapping[str, Tool], **kwargs: object) -> RunResult:
+        interpreter = Interpreter({**TOOLS, **tools}, requester=OWNER, mint=MINT, **kwargs)  # type: ignore[arg-type]
+        return interpreter.run(parse_plan(plan))
+
+    def test_a_step_limit_carries_every_condition_the_run_took(self) -> None:
+        # Fewer iterations end normally; more hit the limit on line 4, so the
+        # failure reveals the loop bound although line 4 never reads it.
+        ok = self.run_with(self.LOOP, {"limit": _secret(1)}, limits=Limits(max_steps=40))
+        assert ok.variables["x"].value == 8
+        with pytest.raises(LabeledPlanError) as err:
+            self.run_with(self.LOOP, {"limit": _secret(6)}, limits=Limits(max_steps=40))
+        assert (err.value.code, err.value.line) == (PlanErrorCode.STEP_LIMIT, 4)
+        assert LIMIT in err.value.label.sources
+
+    def test_lenient_step_limits_carry_data_only(self) -> None:
+        with pytest.raises(LabeledPlanError) as err:
+            self.run_with(self.LOOP, {}, limits=Limits(max_steps=20), flows=LENIENT)
+        assert LIMIT not in err.value.label.sources
+
+    def test_the_result_lists_every_condition_the_steps_depend_on(self) -> None:
+        result = self.run_with("x = 0\nif off():\n    x = 1\ny = 2", {})
+        assert result.control is not None
+        assert OFF in result.control.sources
+        assert run("x = 1").control is None
+
+    def test_a_failing_tool_carries_its_own_source(self) -> None:
+        for flows in ImplicitFlows:
+            with pytest.raises(LabeledPlanError) as err:
+                self.run_with("y = 1\nx = probe(y)", {"probe": _fails}, flows=flows)
+            assert err.value.code is PlanErrorCode.TOOL_FAILED
+            assert Source.tool("probe") in err.value.label.sources
+
+    def test_an_oversized_result_carries_its_label(self) -> None:
+        tools = {"page": _constant("z" * 20, ITEM)}
+        with pytest.raises(LabeledPlanError) as err:
+            self.run_with("x = page()", tools, limits=Limits(max_string=10))
+        assert err.value.code is PlanErrorCode.VALUE_TOO_LARGE
+        assert {ITEM, Source.tool("page")} <= err.value.label.sources
+
+    def test_settling_a_block_draws_on_the_read_budget(self) -> None:
+        names = "\n".join(f"    v{index} = 1" for index in range(30))
+        plan = f"x = 0\nif off():\n{names}\ny = 1"
+        with pytest.raises(LabeledPlanError) as err:
+            self.run_with(plan, {}, limits=Limits(max_visits=10))
+        assert (err.value.code, err.value.line) == (PlanErrorCode.STEP_LIMIT, 2)
+        assert OFF in err.value.label.sources
+
+
+class TestNestedTruth:
+    def test_if_decides_on_the_innermost_value(self) -> None:
+        result = run_nested("x = 0\nif nested():\n    x = 1")
+        assert result.variables["x"].value == 0
+        assert {ITEM, FLAG} <= result.variables["x"].label.sources
+
+    def test_while_decides_on_the_innermost_value(self) -> None:
+        assert run_nested("x = 0\nwhile nested():\n    x = 1").variables["x"].value == 0
+
+    def test_not_and_boolean_operators_agree(self) -> None:
+        result = run_nested("x = not nested()\ny = nested() or 5")
+        assert result.variables["x"].value is True
+        assert ITEM in result.variables["x"].label.sources
+        assert result.variables["y"].value == 5
+
+    def test_a_loop_unwraps_a_nested_tuple(self) -> None:
+        tools = {"wrapped": lambda: Labeled(Labeled((1, 2), Label.of(ITEM)), Label.of(FLAG))}
+        interpreter = Interpreter({**TOOLS, **tools}, requester=OWNER, mint=MINT)
+        x = interpreter.run(parse_plan("for t in wrapped():\n    x = t")).variables["x"]
+        assert x.value == 2
+        assert {ITEM, FLAG} <= x.label.sources
+
+
+def run_nested(plan: str) -> RunResult:
+    interpreter = Interpreter({**TOOLS, "nested": _nested}, requester=OWNER, mint=MINT)
+    return interpreter.run(parse_plan(plan))

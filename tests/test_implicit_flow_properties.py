@@ -9,8 +9,9 @@ Noninterference: if a variable's source is in neither run's outcome label
 (the deep label of ``x``, or the failure's label), changing that variable
 does not change the outcome. A run whose outcome label does contain it is
 skipped; that is what the label is for. Whether a plan stops at all is the
-only thing allowed to differ (termination-insensitive), and the step limit
-is never reached by plans this small.
+only thing allowed to differ (termination-insensitive). The step and size
+limits are small, so plans hit them, and two sources are tools called
+inline: one fails and one returns a value too large when altered.
 """
 
 from collections.abc import Mapping
@@ -18,7 +19,7 @@ from collections.abc import Mapping
 from hypothesis import given
 from hypothesis import strategies as st
 
-from taintwall.core.interpreter import Interpreter, LabeledPlanError, Tool
+from taintwall.core.interpreter import Interpreter, LabeledPlanError, Limits, Tool
 from taintwall.core.labels import Label, Labeled, Source, join_all
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
@@ -26,9 +27,20 @@ from taintwall.core.values import Record
 
 MINT = Mint()
 NAMES = ("a", "b", "c", "d")
-BASE: Mapping[str, object] = {"a": 7, "b": 0, "c": "tok", "d": True}
-ALTERED: Mapping[str, object] = {"a": 0, "b": 4, "c": "", "d": False}
-_LEAVES = (*NAMES, "x", "y", "i", "0", "1", "2", "'t'", "True")
+"""Sources read into variables at the start of every plan."""
+CALLED = ("e", "f")
+"""Sources called inline: ``src_e()`` fails when altered, ``src_f()`` grows too large."""
+BASE: Mapping[str, object] = {"a": 7, "b": 0, "c": "tok", "d": True, "e": 1, "f": "s"}
+ALTERED: Mapping[str, object] = {
+    "a": 0,
+    "b": 4,
+    "c": "",
+    "d": False,
+    "e": "fail",
+    "f": "s" * 40,
+}
+LIMITS = {"max_string": 30, "max_visits": 400}
+_LEAVES = (*NAMES, "x", "y", "i", "0", "1", "2", "'t'", "True", "src_e()", "src_f()")
 _OPERATORS = ("+", "-", "//", "==", "<", "and", "or")
 
 type Outcome = tuple[object, ...]
@@ -102,12 +114,18 @@ def _plain(value: object) -> object:
     return (type(value), value)
 
 
-def _outcome(plan: str, values: Mapping[str, object]) -> tuple[Outcome, Label]:
+def _outcome(plan: str, values: Mapping[str, object], steps: int) -> tuple[Outcome, Label]:
     def source_tool(name: str) -> Tool:
-        return lambda: Labeled(values[name], Label.of(Source.tool(f"src_{name}")))
+        def tool() -> Labeled[object]:
+            if values[name] == "fail":
+                raise RuntimeError
+            return Labeled(values[name], Label.of(Source.tool(f"src_{name}")))
 
-    tools = {f"src_{name}": source_tool(name) for name in NAMES}
-    interpreter = Interpreter(tools, requester=MINT.owner(), mint=MINT)
+        return tool
+
+    tools = {f"src_{name}": source_tool(name) for name in (*NAMES, *CALLED)}
+    limits = Limits(max_steps=steps, **LIMITS)
+    interpreter = Interpreter(tools, requester=MINT.owner(), mint=MINT, limits=limits)
     try:
         x = interpreter.run(parse_plan(plan)).variables["x"]
     except LabeledPlanError as err:
@@ -115,12 +133,12 @@ def _outcome(plan: str, values: Mapping[str, object]) -> tuple[Outcome, Label]:
     return ("ok", _plain(x)), _deep(x)
 
 
-@given(_plans())
-def test_strict_flows_do_not_interfere(plan: str) -> None:
-    base, base_label = _outcome(plan, BASE)
-    for name in NAMES:
+@given(_plans(), st.integers(20, 300))
+def test_strict_flows_do_not_interfere(plan: str, steps: int) -> None:
+    base, base_label = _outcome(plan, BASE, steps)
+    for name in (*NAMES, *CALLED):
         source = Source.tool(f"src_{name}")
-        altered, altered_label = _outcome(plan, {**BASE, name: ALTERED[name]})
+        altered, altered_label = _outcome(plan, {**BASE, name: ALTERED[name]}, steps)
         if source in base_label.sources or source in altered_label.sources:
             continue
         assert altered == base, (plan, name)

@@ -10,6 +10,7 @@ hold plan text (operator, tool, field or variable names), never data.
 import ast
 import dataclasses
 import enum
+from collections.abc import Iterator
 from typing import NamedTuple
 
 from taintwall.core.interpreter.location import Located, line_of
@@ -85,6 +86,10 @@ class Trace:
         """Record that variable ``name`` now holds ``ref``."""
         origin = Origin(EventKind.ASSIGN, node, name, (ref.id,))
         self._append(ref.id, ref.labeled.label, origin, control)
+
+    def labels(self) -> Iterator[Label]:
+        """The label of every event so far."""
+        return (event.label for event in self._events)
 
     @property
     def events(self) -> tuple[TraceEvent, ...]:

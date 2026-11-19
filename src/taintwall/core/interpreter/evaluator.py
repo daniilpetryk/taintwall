@@ -18,12 +18,7 @@ from typing import Final
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import literals, operations, reads
 from taintwall.core.interpreter.context import Context
-from taintwall.core.interpreter.control import (
-    Dependence,
-    Flow,
-    LabeledPlanError,
-    assigned_names,
-)
+from taintwall.core.interpreter.control import Dependence, Flow, LabeledPlanError
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
 from taintwall.core.interpreter.tools import Toolbox
@@ -46,6 +41,12 @@ class RunResult:
     variables: Mapping[str, Labeled[object]]
     trace: tuple[TraceEvent, ...]
     steps: int
+    control: Label | None = None
+    """Every condition the run depended on (``None`` for none).
+
+    ``steps`` depends on these and on every value evaluated, so it is
+    metering for the runtime, not data to show the planner.
+    """
 
 
 class Evaluator:
@@ -60,7 +61,6 @@ class Evaluator:
         self._variables: dict[str, Ref] = {}
         # Reset by ``attempt`` before any statement touches a value.
         self._touched: list[Labeled[object]] = []  # pragma: no mutate
-        self._assigned: dict[ast.stmt, frozenset[str]] = {}
 
     @property
     def guard(self) -> Guard:
@@ -85,7 +85,8 @@ class Evaluator:
     def result(self) -> RunResult:
         """What the run produced so far."""
         variables = {name: ref.labeled for name, ref in self._variables.items()}
-        return RunResult(types.MappingProxyType(variables), self._trace.events, self._guard.steps)
+        events, steps = self._trace.events, self._guard.steps
+        return RunResult(types.MappingProxyType(variables), events, steps, self._flow.history)
 
     def expr(self, node: ast.expr) -> Ref:
         """Evaluate one expression."""
@@ -106,26 +107,44 @@ class Evaluator:
     def new(self, result: Result, origin: Origin) -> Ref:
         """Make ``result`` a labeled value and record it in the trace."""
         value, label = result
-        self._guard.check_size(value)
+        label = self._flow.value_label(label)
+        # A failure here depends on the value being made, so it carries its label.
         try:
-            labeled = Labeled(value, self._flow.value_label(label))
+            self._guard.check_size(value)
+            labeled = Labeled(value, label)
+        except PlanError as err:
+            raise LabeledPlanError(err, label) from None
         except (NonFiniteNumberError, ValueTooDeepError):
-            raise error_at(PlanErrorCode.VALUE_TOO_LARGE, origin.node) from None
+            raise LabeledPlanError(
+                error_at(PlanErrorCode.VALUE_TOO_LARGE, origin.node), label
+            ) from None
         except MutableValueError:
-            raise error_at(PlanErrorCode.TYPE_MISMATCH, origin.node) from None
+            raise LabeledPlanError(
+                error_at(PlanErrorCode.TYPE_MISMATCH, origin.node), label
+            ) from None
         self._touched.append(labeled)
         return self._trace.add(labeled, origin, self._flow.pc.label)
 
     def attempt[R](self, action: Callable[[], R]) -> R:
-        """Run ``action``; label a failure by everything it touched and the pc."""
+        """Run ``action``; label a failure by everything it touched and the pc.
+
+        A failure that already carries a label (a tool's own source, a value
+        too large to make) keeps it. Under strict flows, a failure on the
+        run's shared step budget also carries every value and condition the
+        run has seen: how many steps were spent before depends on all of them
+        (``a and b`` evaluates ``b`` only for some ``a``).
+        """
         self._touched = []
         try:
             return action()
         except PlanError as err:
             failure = err
         # Raised outside the handler, so no exception chain rides along.
-        data = join_all(self._literal_label, *labels_within(self._touched))
-        raise LabeledPlanError(failure, self._flow.value_label(data))
+        labels = [self._literal_label, *labels_within(self._touched)]
+        if self._flow.strict and failure.code is PlanErrorCode.STEP_LIMIT:
+            labels.extend(self._trace.labels())
+            labels.extend(label for label in (self._flow.history,) if label is not None)
+        raise LabeledPlanError.of(failure, self._flow.value_label(join_all(*labels)))
 
     def bind(self, name: str, ref: Ref, node: ast.stmt) -> None:
         """Assign ``ref`` to ``name``; under strict flows it carries the pc."""
@@ -142,9 +161,8 @@ class Evaluator:
         """
         if not self._flow.strict or condition.label is None:
             return
-        if node not in self._assigned:
-            self._assigned[node] = assigned_names(node)
-        for name in sorted(self._assigned[node]):
+        for name in self._flow.assigned(node):
+            self._guard.visit()
             ref = self._variables.get(name)
             if ref is None:
                 self._flow.skipped(name, condition.label)

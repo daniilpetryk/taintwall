@@ -10,6 +10,9 @@ Each handler returns how its block ended (``Signal``). The pc rules live in
   its length; each element joins its own label with that one, like ``t[i]``;
 * ``while``: every test evaluated, since each decides whether to go on.
 
+A test or an iterated value nested in further ``Labeled`` wrappers is
+unwrapped, and every wrapper's label counts (``walk.truth``).
+
 Every loop iteration costs a step, so a loop over a long tuple with an empty
 body still exhausts the step budget.
 """
@@ -21,24 +24,31 @@ from typing import Final
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.context import Scope
-from taintwall.core.interpreter.control import Dependence, Signal, exits_loop
+from taintwall.core.interpreter.control import Dependence, Signal
 from taintwall.core.interpreter.location import error_at
 from taintwall.core.interpreter.trace import EventKind, Origin, Ref
-from taintwall.core.labels import Labeled
+from taintwall.core.interpreter.walk import truth, unwrap
+from taintwall.core.labels import Label, Labeled
 
 
 def block(scope: Scope, statements: Sequence[ast.stmt]) -> Signal:
     """Run statements in order until one leaves the block."""
     for statement in statements:
         scope.guard.at(statement)
-        handler = _HANDLERS.get(type(statement))
-        if handler is None:
-            # parse_plan admits nothing else; fail closed if that ever changes.
-            raise error_at(PlanErrorCode.UNSUPPORTED, statement, type(statement).__name__)
+        handler = _HANDLERS.get(type(statement), _unsupported)
         signal = handler(scope, statement)
         if signal is not Signal.NEXT:
             return signal
     return Signal.NEXT
+
+
+def _unsupported(scope: Scope, node: ast.stmt) -> Signal:
+    """parse_plan admits no other statement; fail closed if that ever changes."""
+
+    def fail() -> Signal:
+        raise error_at(PlanErrorCode.UNSUPPORTED, node, type(node).__name__)
+
+    return scope.attempt(fail)
 
 
 def _assign(scope: Scope, node: ast.stmt) -> Signal:
@@ -73,11 +83,12 @@ def _expression(scope: Scope, node: ast.stmt) -> Signal:
 def _if(scope: Scope, node: ast.stmt) -> Signal:
     assert isinstance(node, ast.If)  # noqa: S101 - dispatch guarantees the type
     test = scope.attempt(lambda: scope.expr(node.test))
-    condition = Dependence.on(test.labeled.label, test.id)
+    holds, label = truth(test.labeled)
+    condition = Dependence.on(label, test.id)
     with scope.flow.branch(condition):
-        signal = block(scope, node.body if test.labeled.value else node.orelse)
-    scope.settle(node, condition)
-    if exits_loop((*node.body, *node.orelse)):
+        signal = block(scope, node.body if holds else node.orelse)
+    _settle(scope, node, condition)
+    if scope.flow.leaves_loop(node):
         scope.flow.exit(condition)
     return signal
 
@@ -88,36 +99,36 @@ def _for(scope: Scope, node: ast.stmt) -> Signal:
     assert isinstance(target, ast.Name)  # noqa: S101 - parse_plan guarantees it
     name = target.id
 
-    def start() -> tuple[Ref, tuple[object, ...]]:
+    def start() -> tuple[Ref, tuple[object, ...], Label]:
         _check_target(scope, name, node)
         source = scope.expr(node.iter)
-        items = source.labeled.value
+        items, container = unwrap(source.labeled)
         if type(items) is not tuple:
             raise error_at(PlanErrorCode.TYPE_MISMATCH, node.iter)
-        return source, items
+        return source, items, container
 
-    source, items = scope.attempt(start)
-    frame = Dependence.on(source.labeled.label, source.id)
+    source, items, container = scope.attempt(start)
+    frame = Dependence.on(container, source.id)
     with scope.flow.loop(frame):
         for item in items:
 
             def bind(item: object = item) -> None:
                 scope.guard.at(node)
                 scope.guard.step()
-                scope.bind(name, _element(scope, node, source, item), node)
+                scope.bind(name, _element(scope, node, (source.id, container), item), node)
 
             scope.attempt(bind)
             if block(scope, node.body) is Signal.BREAK:
                 break
-    scope.settle(node, frame)
+    _settle(scope, node, frame)
     return Signal.NEXT
 
 
-def _element(scope: Scope, node: ast.For, source: Ref, item: object) -> Ref:
+def _element(scope: Scope, node: ast.For, source: tuple[int, Label], item: object) -> Ref:
     """One element of the iterated tuple, labeled like ``t[i]``."""
-    container = source.labeled.label
+    source_id, container = source
     value, own = (item.value, item.label) if isinstance(item, Labeled) else (item, container)
-    origin = Origin(EventKind.INDEX, node.target, "", (source.id,))
+    origin = Origin(EventKind.INDEX, node.target, "", (source_id,))
     return scope.new((value, own.join(container)), origin)
 
 
@@ -128,12 +139,19 @@ def _while(scope: Scope, node: ast.stmt) -> Signal:
         while True:
             scope.guard.at(node)
             test = scope.attempt(lambda: scope.expr(node.test))
-            frame.extend(Dependence.on(test.labeled.label, test.id))
+            holds, label = truth(test.labeled)
+            frame.extend(Dependence.on(label, test.id))
             scope.flow.grow()
-            if not test.labeled.value or block(scope, node.body) is Signal.BREAK:
+            if not holds or block(scope, node.body) is Signal.BREAK:
                 break
-    scope.settle(node, frame)
+    _settle(scope, node, frame)
     return Signal.NEXT
+
+
+def _settle(scope: Scope, node: ast.stmt, condition: Dependence) -> None:
+    """After a block, at its line: variables it may assign depend on ``condition``."""
+    scope.guard.at(node)
+    scope.attempt(lambda: scope.settle(node, condition))
 
 
 def _pass(_scope: Scope, _node: ast.stmt) -> Signal:

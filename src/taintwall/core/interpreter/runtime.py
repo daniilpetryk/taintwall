@@ -24,6 +24,13 @@ class InvalidRequesterError(ValueError):
         super().__init__("requester must be the owner or a precise principal source")
 
 
+class InvalidFlowsError(TypeError):
+    """The implicit-flow mode is not an ``ImplicitFlows`` member."""
+
+    def __init__(self) -> None:
+        super().__init__("flows must be an ImplicitFlows member, not a string")
+
+
 class Interpreter:
     """Runs plans against a fixed set of tools on behalf of one requester.
 
@@ -46,7 +53,10 @@ class Interpreter:
         self._tools = Toolbox(tools)
         self._literal_label = Label.of(mint.plan(), requester)
         self._limits = limits or Limits()
-        self._flows = ImplicitFlows(flows)
+        if not isinstance(flows, ImplicitFlows):
+            # Like source kinds: a plain string is never taken for a mode.
+            raise InvalidFlowsError
+        self._flows = flows
 
     def run(self, plan: Plan) -> RunResult:
         """Run ``plan`` once from an empty environment.

@@ -24,7 +24,11 @@ from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.control import ImplicitFlows, LabeledPlanError
 from taintwall.core.interpreter.evaluator import RunResult
 from taintwall.core.interpreter.limits import InvalidLimitError, Limits
-from taintwall.core.interpreter.runtime import Interpreter, InvalidRequesterError
+from taintwall.core.interpreter.runtime import (
+    Interpreter,
+    InvalidFlowsError,
+    InvalidRequesterError,
+)
 from taintwall.core.interpreter.tools import Tool, ToolNameClashError
 from taintwall.core.interpreter.trace import EventKind, TraceEvent
 
@@ -33,6 +37,7 @@ __all__ = [
     "EventKind",
     "ImplicitFlows",
     "Interpreter",
+    "InvalidFlowsError",
     "InvalidLimitError",
     "InvalidRequesterError",
     "LabeledPlanError",

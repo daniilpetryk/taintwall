@@ -20,7 +20,7 @@ from taintwall.core.interpreter import (
     Limits,
     ToolNameClashError,
 )
-from taintwall.core.interpreter.control import Dependence, Flow, ImplicitFlows
+from taintwall.core.interpreter.control import Dependence, Flow, ImplicitFlows, LabeledPlanError
 from taintwall.core.interpreter.evaluator import Evaluator
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.operators import apply
@@ -56,9 +56,10 @@ def test_overflow_becomes_value_too_large_at_the_node() -> None:
 
 
 def test_a_mutable_result_is_a_type_mismatch_at_the_node() -> None:
-    with pytest.raises(PlanError) as err:
+    with pytest.raises(LabeledPlanError) as err:
         evaluator().new(({"a": 1}, LABEL), Origin(EventKind.OPERATION, EXPRESSION))
     assert (err.value.code, err.value.line) == (PlanErrorCode.TYPE_MISMATCH, 3)
+    assert err.value.label == LABEL
 
 
 def test_a_non_finite_result_is_too_large_at_the_node() -> None:
@@ -76,6 +77,8 @@ def test_unknown_statements_fail_closed(source: str, detail: str) -> None:
         2,
         detail,
     )
+    assert isinstance(err.value, LabeledPlanError)
+    assert err.value.label == LABEL
 
 
 class TestGuard:
