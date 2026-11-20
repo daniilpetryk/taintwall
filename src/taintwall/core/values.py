@@ -18,6 +18,9 @@ from taintwall.core.labels import Labeled
 
 _FIELD_NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
+ATOMS: Final = frozenset({str, int, float, bool, type(None)})
+"""Exact types of the atoms a plan value is built from; never their subclasses."""
+
 
 def is_field_name(name: object) -> bool:
     """Whether ``name`` can name a record field: a short lowercase identifier."""

@@ -16,7 +16,7 @@ import enum
 from collections.abc import Mapping
 from typing import Final
 
-from taintwall.core.interpreter import ATOMS
+from taintwall.core.values import ATOMS, is_field_name
 
 
 class Scalar(enum.Enum):
@@ -224,7 +224,10 @@ def _typed(schema: Schema, known: Mapping[str, Schema], within: frozenset[str]) 
         return _JSON[kind]
     if kind == "array":
         items = schema.get("items")
-        return ListOf(_convert(_mapping(items), known, within) if items else Scalar.ANY)
+        # Missing, true or {}: any item. False (no item at all) is refused below.
+        if items is None or items is True or items == {}:
+            return ListOf(Scalar.ANY)
+        return ListOf(_convert(_mapping(items), known, within))
     if kind == "object":
         return _object(schema, known, within)
     raise UnsupportedSchemaError(kind if isinstance(kind, str) else _NO_TYPE)
@@ -269,6 +272,11 @@ _REQUIRED_KEY: Final = "required"
 def _object(schema: Schema, defs: Mapping[str, Schema], within: frozenset[str]) -> ValueType:
     """A record type; a bare ``object`` (a mapping of anything) has no fields."""
     properties = _mapping(schema.get("properties", {}))
+    for field in properties:
+        # A field a plan record cannot have would fail every call that returns it.
+        if not is_field_name(field):
+            what = f"field name {field!r}"
+            raise UnsupportedSchemaError(what)
     fields = tuple(
         (str(field), _convert(_mapping(spec), defs, within)) for field, spec in properties.items()
     )

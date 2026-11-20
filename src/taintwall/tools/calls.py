@@ -11,6 +11,7 @@ its pc and effects: the replanning loop (Q3) may retry a plan only while
 
 import dataclasses
 from collections.abc import Mapping
+from types import MappingProxyType
 
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import PendingCall
@@ -40,7 +41,7 @@ class CallLog:
     """Checks and records the tool calls of one run; a ``CallHook``."""
 
     def __init__(self, specs: Mapping[str, ToolSpec]) -> None:
-        self._specs = dict(specs)
+        self._specs = MappingProxyType(dict(specs))
         self._records: list[CallRecord] = []
 
     def before(self, call: PendingCall) -> None:

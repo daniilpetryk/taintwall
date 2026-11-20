@@ -29,10 +29,11 @@ from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import ATOMS, NUMBERS, apply
+from taintwall.core.interpreter.operators import NUMBERS, apply
 from taintwall.core.interpreter.trace import Result
 from taintwall.core.interpreter.walk import deep_label, plain, truth
 from taintwall.core.labels import Labeled, join_all
+from taintwall.core.values import ATOMS
 
 type Builtin = Callable[[ast.Call, str, tuple[Labeled[object], ...], Guard], Result]
 

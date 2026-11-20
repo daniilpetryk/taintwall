@@ -27,7 +27,6 @@ from taintwall.core.labels import Labeled, join_all
 NUMBERS: Final = frozenset({int, float})
 """Types arithmetic accepts (not ``bool``)."""
 
-ATOMS: Final = frozenset({str, int, float, bool, type(None)})
 """Types an f-string may interpolate and a builtin may return."""
 
 _ARITHMETIC: Final[Mapping[type[ast.operator], Callable[..., object]]] = {

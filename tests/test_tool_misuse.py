@@ -18,10 +18,12 @@ from taintwall.tools import (
     Effects,
     ForeignLogError,
     InvalidParamError,
+    ListOf,
     Param,
     Registry,
     Scalar,
     ToolSpec,
+    UnsupportedSchemaError,
     from_json_schema,
     label_plain,
     normalize,
@@ -43,7 +45,9 @@ class TestRobustness:
         assert copy.deepcopy(param).required
         assert copy.copy(param).required
 
-    @pytest.mark.parametrize("name", ["from", "class", "2x", "a-b", "x"])
+    @pytest.mark.parametrize(
+        "name", ["from", "class", "2x", "a-b", "x", "_x", "__class__", "\u00f1"]
+    )
     def test_param_names_must_be_keywords_a_plan_can_write(self, name: str) -> None:
         params = (Param("x", Scalar.INT), Param(name, Scalar.INT))
         with pytest.raises(InvalidParamError) as err:
@@ -111,3 +115,59 @@ def test_the_wrapper_alone_still_labels_results_private() -> None:
     spec = ToolSpec("t", "T.", (), Scalar.INT, READ_ONLY)
     result = Registry([(spec, lambda: 1)])._tools()["t"]()  # noqa: SLF001 - the wrapper alone
     assert result.label.readers is Readers.USER
+
+
+def test_a_hook_that_exits_fails_the_call_without_its_text() -> None:
+    class Exit:
+        def before(self, call: PendingCall) -> None:
+            raise SystemExit(INJECTED + call.name)
+
+    spec = ToolSpec("t", "T.", (), Scalar.INT, READ_ONLY)
+    interpreter, _ = Registry([(spec, lambda: 1)]).interpreter(
+        requester=MINT.owner(), mint=MINT, policies=[Exit()]
+    )
+    with pytest.raises(LabeledPlanError) as err:
+        interpreter.run(parse_plan("x = t()"))
+    assert err.value.code is PlanErrorCode.TOOL_FAILED
+    assert "injected" not in str(err.value)
+
+
+def test_a_logs_specs_cannot_be_changed() -> None:
+    spec = ToolSpec("t", "T.", (), Scalar.INT, READ_ONLY)
+    _, log = Registry([(spec, lambda: 1)]).interpreter(requester=MINT.owner(), mint=MINT)
+    with pytest.raises(TypeError):
+        log.specs["t"] = spec  # type: ignore[index]
+
+
+@pytest.mark.parametrize("items", [None, True, {}])
+def test_arrays_of_anything(items: object) -> None:
+    schema: dict[str, object] = {"type": "array"}
+    if items is not None:
+        schema["items"] = items
+    assert from_json_schema(schema) == ListOf(Scalar.ANY)
+
+
+@pytest.mark.parametrize(
+    ("schema", "what"),
+    [
+        ({"type": "array", "items": False}, "bool"),
+        ({"type": "object", "properties": {"IBAN": {"type": "string"}}}, "field name 'IBAN'"),
+    ],
+)
+def test_types_no_value_can_have_are_refused(schema: dict[str, object], what: str) -> None:
+    with pytest.raises(UnsupportedSchemaError) as err:
+        from_json_schema(schema)
+    assert str(err.value) == f"unsupported JSON schema: {what}"
+
+
+def test_parameter_descriptions_reach_the_planner() -> None:
+    params = (
+        Param("to", Scalar.STR, description="Who gets it"),
+        Param("n", Scalar.INT),
+        Param("memo", Scalar.STR, description="A note"),
+    )
+    spec = ToolSpec("pay", "Pays.", params, Scalar.BOOL, READ_ONLY)
+    assert spec.signature() == (
+        'def pay(to: str, n: int, memo: str) -> bool:\n    """Pays.\n\n    Args:\n'
+        '        to: Who gets it\n        memo: A note\n    """'
+    )

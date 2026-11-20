@@ -9,8 +9,12 @@ and readers are this file's choices, per suite: an unlisted function counts
 as having every effect (writes, moves funds, sends outward), the fail-safe
 default for the replanning rule (Q3) and for policies.
 The implementation runs the function in the task's environment through
-AgentDojo's runtime; an error comes back as an exception, so the interpreter
-reports ``TOOL_FAILED`` and drops its text (it may carry an injection).
+AgentDojo's runtime and dumps its result as JSON would (by alias), so values
+match the serialization schema the result type was read from; an error comes
+back as an exception, so the interpreter reports ``TOOL_FAILED`` and drops its
+text (it may carry an injection). A function whose schema the tool types
+cannot express is left out of the registry and reported by name, so one
+function does not cost the whole suite.
 """
 
 from collections.abc import Mapping
@@ -26,6 +30,7 @@ from taintwall.tools import (
     Param,
     Registry,
     ToolSpec,
+    UnsupportedSchemaError,
     from_json_schema,
 )
 
@@ -63,8 +68,19 @@ class ToolFailedError(RuntimeError):
         super().__init__(f"{name} failed")
 
 
+class UnsupportedFunctionError(ValueError):
+    """A function's parameter or result has a schema the tool types cannot express."""
+
+    def __init__(self, function: str, part: str, reason: UnsupportedSchemaError) -> None:
+        super().__init__(f"{function} {part}: {reason}")
+
+
 def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo's Function is untyped
-    """The spec of one AgentDojo function."""
+    """The spec of one AgentDojo function.
+
+    Raises:
+        UnsupportedFunctionError: naming the parameter or the result refused.
+    """
     schema = function.parameters.model_json_schema()
     defs = schema.get("$defs", {})
     properties = schema.get("properties", {})
@@ -72,15 +88,17 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
     # (alias, validation alias, AliasChoices, AliasPath): pair them by position.
     fields = function.parameters.model_fields.values()
     params = tuple(
-        Param(name, from_json_schema(prop, defs))
-        if field.is_required()
-        # The real default, factories included: the JSON schema omits those.
-        else Param(name, from_json_schema(prop, defs), field.get_default(call_default_factory=True))
+        _param(function.name, name, prop, defs, field)
         for field, (name, prop) in zip(fields, properties.items(), strict=True)
     )
-    # Results are dumped as they serialize (values.normalize), so their type
-    # is read from the serialization schema: its aliases, its computed fields.
-    returns = from_json_schema(TypeAdapter(function.return_type).json_schema(mode="serialization"))
+    # Results are dumped as they serialize (implementation), so their type is
+    # read from the serialization schema: its aliases, its computed fields.
+    try:
+        returns = from_json_schema(
+            TypeAdapter(function.return_type).json_schema(mode="serialization")
+        )
+    except UnsupportedSchemaError as err:
+        raise UnsupportedFunctionError(function.name, "result", err) from None
     return ToolSpec(
         name=function.name,
         description=function.description,
@@ -91,20 +109,53 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
     )
 
 
-def registry(suite: Any, environment: Any, suite_name: str) -> Registry:  # noqa: ANN401 - untyped
-    """Every function of ``suite`` as a tool acting on ``environment``."""
+def _param(function: str, name: str, prop: Any, defs: Any, field: Any) -> Param:  # noqa: ANN401
+    """One parameter, its description from the schema, its real default if optional."""
+    try:
+        kind = from_json_schema(prop, defs)
+    except UnsupportedSchemaError as err:
+        raise UnsupportedFunctionError(function, f"parameter {name}", err) from None
+    description = str(prop.get("description", ""))
+    if field.is_required():
+        return Param(name, kind, description=description)
+    # The real default, factories included (the JSON schema omits those); one
+    # computed from the other arguments has no value to show.
+    if field.default_factory_takes_validated_data:
+        return Param(name, kind, ..., description=description)
+    return Param(name, kind, field.get_default(call_default_factory=True), description=description)
+
+
+def registry(
+    suite: Any,  # noqa: ANN401 - untyped
+    environment: Any,  # noqa: ANN401 - untyped
+    suite_name: str,
+) -> tuple[Registry, Mapping[str, str]]:
+    """Every function of ``suite`` it can express, acting on ``environment``.
+
+    Returns the registry and the functions left out, each with why.
+    """
     runtime = FunctionsRuntime(suite.tools)
-    return Registry(
-        (spec_for(function, suite_name), _implementation(runtime, environment, function.name))
-        for function in suite.tools
-    )
+    entries = []
+    refused: dict[str, str] = {}
+    for function in suite.tools:
+        try:
+            spec = spec_for(function, suite_name)
+        except UnsupportedFunctionError as err:
+            refused[function.name] = str(err)
+            continue
+        entries.append((spec, implementation(runtime, environment, function)))
+    return Registry(entries), refused
 
 
-def _implementation(runtime: FunctionsRuntime, environment: Any, name: str) -> Implementation:  # noqa: ANN401
+def implementation(runtime: Any, environment: Any, function: Any) -> Implementation:  # noqa: ANN401
+    """Run ``function`` in ``environment``; its result as JSON would carry it, by alias."""
+    adapter = TypeAdapter(function.return_type)
+    name = function.name
+
     def run(**arguments: object) -> object:
         result, error = runtime.run_function(environment, name, arguments)
         if error is not None:
             raise ToolFailedError(name)
-        return result
+        return adapter.dump_python(result, mode="json", by_alias=True)
 
     return run

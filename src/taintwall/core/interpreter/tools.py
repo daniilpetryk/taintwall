@@ -55,7 +55,7 @@ def _hook_isolated(hook: "CallHook", call: "PendingCall") -> bool:
         hook.before(call)
     except PlanError:
         raise
-    except Exception:  # noqa: BLE001 - any crash is a refused call, its text dropped
+    except (Exception, SystemExit):  # noqa: BLE001 - as _call_isolated: a crash, its text dropped
         return False
     return True
 

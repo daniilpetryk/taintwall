@@ -16,8 +16,8 @@ import keyword
 from collections.abc import Mapping
 from typing import Final
 
-from taintwall.core.interpreter import ATOMS
 from taintwall.core.labels import Readers
+from taintwall.core.values import ATOMS
 from taintwall.tools.schema import ValueType, accepts, render
 
 
@@ -39,11 +39,13 @@ class InvalidParamError(ValueError):
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Param:
-    """One parameter: its name, type, and default if it is optional."""
+    """One parameter: its name, type, default if it is optional, and what it means."""
 
     name: str
     type: ValueType
     default: object = _REQUIRED
+    description: str = ""
+    """Shown to the planner under ``Args:``; trusted configuration, like the tool's."""
 
     @property
     def required(self) -> bool:
@@ -97,13 +99,14 @@ class ToolSpec:
         """Every parameter name must be one a plan can write as a keyword.
 
         Raises:
-            InvalidParamError: a name that is not an identifier, a Python
-                keyword (``from``), or repeated.
+            InvalidParamError: a name that is repeated or that a plan cannot
+                write: not an ASCII identifier, a Python keyword (``from``),
+                or private (``_x``), as the plan language refuses those.
         """
         seen: set[str] = set()
         for param in self.params:
             name = param.name
-            if not name.isidentifier() or keyword.iskeyword(name) or name in seen:
+            if not _writable(name) or name in seen:
                 raise InvalidParamError(self.name, name)
             seen.add(name)
 
@@ -138,7 +141,10 @@ class ToolSpec:
     def signature(self) -> str:
         """The tool as a planner reads it: a Python signature and its description."""
         params = ", ".join(_param(param) for param in self.params)
-        return f'def {self.name}({params}) -> {render(self.returns)}:\n    """{self.description}"""'
+        described = [param for param in self.params if param.description]
+        args = "".join(f"\n        {param.name}: {param.description}" for param in described)
+        doc = f"{self.description}\n\n    Args:{args}\n    " if described else self.description
+        return f'def {self.name}({params}) -> {render(self.returns)}:\n    """{doc}"""'
 
 
 def _param(param: Param) -> str:
@@ -150,6 +156,16 @@ def _param(param: Param) -> str:
     plain = _plain(param.default) and accepts(param.type, param.default)
     shown = repr(param.default) if plain else "..."
     return f"{text} = {shown}"
+
+
+def _writable(name: str) -> bool:
+    """Whether a plan can write ``name`` as a keyword argument."""
+    return (
+        name.isascii()
+        and name.isidentifier()
+        and not keyword.iskeyword(name)
+        and not name.startswith("_")
+    )
 
 
 def _plain(value: object) -> bool:

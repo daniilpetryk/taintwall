@@ -3,11 +3,12 @@
 """AgentDojo banking functions as taintwall tools, run by the interpreter offline."""
 
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
 from pydantic import AliasChoices, AliasPath, BaseModel, Field, computed_field
-from registry import registry, spec_for
+from registry import implementation, registry, spec_for
 
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter import LabeledPlanError, RunResult
@@ -22,7 +23,8 @@ MINT = Mint()
 
 
 def run(plan: str) -> tuple[RunResult, CallLog]:
-    tools = registry(SUITE, SUITE.load_and_inject_default_environment({}), "banking")
+    tools, refused = registry(SUITE, SUITE.load_and_inject_default_environment({}), "banking")
+    assert refused == {}
     interpreter, log = tools.interpreter(requester=MINT.owner(), mint=MINT)
     return interpreter.run(parse_plan(plan)), log
 
@@ -144,3 +146,39 @@ def test_an_unlisted_function_has_every_effect() -> None:
     )
     effects = spec_for(function, "banking").effects
     assert (effects.writes, effects.moves_funds, effects.outward) == (True, True, True)
+
+
+def test_a_function_the_types_cannot_express_is_left_out_by_name() -> None:
+    travel = get_suite("v1.2.2", "travel")
+    tools, refused = registry(travel, travel.load_and_inject_default_environment({}), "travel")
+    assert list(refused) == ["send_email"]
+    assert refused["send_email"] == "send_email result: unsupported JSON schema: anyOf"
+    assert len(tools.specs) == len(travel.tools) - 1
+
+
+def test_results_are_dumped_as_json() -> None:
+    class Empty(BaseModel):
+        pass
+
+    function = SimpleNamespace(name="ident", description="I.", parameters=Empty, return_type=UUID)
+    value = UUID(int=1)
+    runtime = SimpleNamespace(run_function=lambda *_: (value, None))
+    spec = spec_for(function, "banking")
+    tools = Registry([(spec, implementation(runtime, None, function))])
+    interpreter, _ = tools.interpreter(requester=MINT.owner(), mint=MINT)
+    result = interpreter.run(parse_plan("x = ident()"))
+    assert result.variables["x"].value == str(value)
+
+
+def test_a_default_computed_from_other_arguments_shows_as_dots() -> None:
+    class Arguments(BaseModel):
+        n: int = 1
+        m: int = Field(default_factory=lambda data: data["n"] * 2)
+
+    function = SimpleNamespace(name="f", description="F.", parameters=Arguments, return_type=int)
+    assert "(n: int = 1, m: int = ...) -> int" in spec_for(function, "banking").signature()
+
+
+def test_the_planner_reads_parameter_descriptions() -> None:
+    send = next(function for function in SUITE.tools if function.name == "send_money")
+    assert "        date: Date of the transaction" in spec_for(send, "banking").signature()

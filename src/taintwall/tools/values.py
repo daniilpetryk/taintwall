@@ -18,9 +18,8 @@ import enum
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from taintwall.core.interpreter import ATOMS
 from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled
-from taintwall.core.values import Record, is_field_name
+from taintwall.core.values import ATOMS, Record, is_field_name
 
 
 class ConversionError(TypeError):
