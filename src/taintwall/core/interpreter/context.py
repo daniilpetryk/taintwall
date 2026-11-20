@@ -25,8 +25,15 @@ class ToolCalls(Protocol):
         """Whether ``name`` is a tool of this run."""
         ...
 
-    def call(self, node: ast.Call, name: str, arguments: Arguments, guard: Guard) -> Result:
-        """Call tool ``name`` and label its result."""
+    def call(
+        self,
+        node: ast.Call,
+        name: str,
+        arguments: Arguments,
+        guard: Guard,
+        control: Label | None,
+    ) -> Result:
+        """Call tool ``name`` under pc ``control`` and label its result."""
         ...
 
 

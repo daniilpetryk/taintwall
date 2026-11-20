@@ -28,6 +28,13 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   prompt, DeepSeek V3.2 goes from 19% to 88% of plans accepted, GPT-5 mini
   from 62% to 94%, Haiku 5.5 to 100% (#29).
 
+- Tool registry: tools from trusted specs (typed parameters, result
+  type, effects, readers), results labeled in every part, and a hook that
+  sees every tool call with its arguments' labels and the pc before it runs;
+  the call log refuses ill-typed arguments before any side effect and
+  tells the replanning loop whether anything changed. AgentDojo's banking
+  functions run through it (#30).
+
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
   run under a pc of what decided them (#29).

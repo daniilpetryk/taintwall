@@ -12,11 +12,11 @@ import ast
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.context import Context
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import ATOMS, NUMBERS, apply
+from taintwall.core.interpreter.operators import NUMBERS, apply
 from taintwall.core.interpreter.trace import EventKind, Origin, Ref
 from taintwall.core.interpreter.walk import check_nesting, deep_label
 from taintwall.core.labels import join_all
-from taintwall.core.values import Record
+from taintwall.core.values import ATOMS, Record
 
 
 def constant(context: Context, node: ast.expr) -> Ref:

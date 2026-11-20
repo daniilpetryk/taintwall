@@ -110,7 +110,8 @@ def call(context: Context, node: ast.expr) -> Ref:
     )
     inputs = tuple(ref.id for ref in [*positional, *keyword.values()])
     if is_tool:
-        result = context.tools.call(node, function, arguments, context.guard)
+        control = context.flow.pc.label
+        result = context.tools.call(node, function, arguments, context.guard, control)
         return context.new(result, Origin(EventKind.CALL, node, function, inputs))
     result = call_builtin(node, function, arguments, context.guard)
     return context.new(result, Origin(EventKind.OPERATION, node, function, inputs))

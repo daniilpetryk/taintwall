@@ -1,0 +1,179 @@
+# Copyright 2026 Daniil Petryk
+# SPDX-License-Identifier: Apache-2.0
+"""What a tool is, as the runtime and the planner know it.
+
+A ``ToolSpec`` comes from trusted configuration only. Its description reaches
+the planner, so it must never be taken from a tool server: an MCP server's
+own description is attacker-reachable text (tool poisoning). Effects say what
+a call may change, for the replanning rule (no replanning after a side
+effect, Q3) and later for policies; ``readers`` say who may see its results
+(Q9).
+"""
+
+import dataclasses
+import enum
+import keyword
+from collections.abc import Mapping
+from typing import Final
+
+from taintwall.core.labels import Readers
+from taintwall.core.values import ATOMS
+from taintwall.tools.schema import ValueType, accepts, render
+
+
+class _Marker(enum.Enum):
+    REQUIRED = "required"
+
+
+_REQUIRED: Final = _Marker.REQUIRED
+"""Marker: a parameter without a default. An enum member, so a copied or
+unpickled ``Param`` is still the same marker (``object()`` would not be)."""
+
+
+class InvalidParamError(ValueError):
+    """A parameter name a plan cannot pass by keyword, or one given twice."""
+
+    def __init__(self, tool: str, name: str) -> None:
+        super().__init__(f"{tool} has an invalid or repeated parameter: {name!r}")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Param:
+    """One parameter: its name, type, default if it is optional, and what it means."""
+
+    name: str
+    type: ValueType
+    default: object = _REQUIRED
+    description: str = ""
+    """Shown to the planner under ``Args:``; trusted configuration, like the tool's."""
+
+    @property
+    def required(self) -> bool:
+        """Whether a call must pass it."""
+        return self.default is _REQUIRED
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Effects:
+    """What a call may change; a call with no effect only reads."""
+
+    writes: bool = False
+    """Changes state: a file, the user's settings, a scheduled payment."""
+
+    moves_funds: bool = False
+    """Sends, schedules or approves a transfer of value."""
+
+    outward: bool = False
+    """Sends data outside: a message, an HTTP request, calldata (Q9)."""
+
+    @property
+    def read_only(self) -> bool:
+        """Whether the call changes nothing."""
+        return not (self.writes or self.moves_funds or self.outward)
+
+
+READ_ONLY: Final = Effects()
+
+
+class ArgumentError(ValueError):
+    """A call's arguments do not fit the tool's parameters."""
+
+    def __init__(self, tool: str) -> None:
+        super().__init__(f"arguments do not fit {tool}")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ToolSpec:
+    """A tool's name, trusted description, parameters, result, effects and readers."""
+
+    name: str
+    description: str
+    params: tuple[Param, ...]
+    returns: ValueType
+    effects: Effects
+    """Required: a forgotten effect would let a plan be retried after a side effect (Q3)."""
+    readers: Readers = Readers.USER
+    """Private by default (Q9); results anyone may see opt into ``PUBLIC``."""
+
+    def __post_init__(self) -> None:
+        """Every parameter name must be one a plan can write as a keyword.
+
+        Raises:
+            InvalidParamError: a name that is repeated or that a plan cannot
+                write: not an ASCII identifier, a Python keyword (``from``),
+                or private (``_x``), as the plan language refuses those.
+        """
+        seen: set[str] = set()
+        for param in self.params:
+            name = param.name
+            if not _writable(name) or name in seen:
+                raise InvalidParamError(self.name, name)
+            seen.add(name)
+
+    def bind(
+        self, positional: tuple[object, ...], keyword: Mapping[str, object]
+    ) -> dict[str, object]:
+        """The arguments the call gives, by parameter name, with their types checked.
+
+        Defaults are not filled in: they are the implementation's, and the
+        spec only shows them in the signature.
+
+        Raises:
+            ArgumentError: too many, missing, unknown or ill-typed arguments.
+        """
+        if len(positional) > len(self.params):
+            raise ArgumentError(self.name)
+        names = [param.name for param in self.params]
+        # Never more values than names (checked above); strict would only fail on fewer.
+        bound = dict(zip(names, positional, strict=False))  # pragma: no mutate - see above
+        for name, value in keyword.items():
+            if name in bound or name not in names:
+                raise ArgumentError(self.name)
+            bound[name] = value
+        for param in self.params:
+            if param.name not in bound:
+                if param.required:
+                    raise ArgumentError(self.name)
+            elif not accepts(param.type, bound[param.name]):
+                raise ArgumentError(self.name)
+        return bound
+
+    def signature(self) -> str:
+        """The tool as a planner reads it: a Python signature and its description."""
+        params = ", ".join(_param(param) for param in self.params)
+        described = [param for param in self.params if param.description]
+        args = "".join(f"\n        {param.name}: {param.description}" for param in described)
+        doc = f"{self.description}\n\n    Args:{args}\n    " if described else self.description
+        return f'def {self.name}({params}) -> {render(self.returns)}:\n    """{doc}"""'
+
+
+def _param(param: Param) -> str:
+    text = f"{param.name}: {render(param.type)}"
+    if param.required:
+        return text
+    # A default that is no plan value (a date, a model), or not of the
+    # parameter's type, shows as "...": its repr would not parse in a plan.
+    plain = _plain(param.default) and accepts(param.type, param.default)
+    shown = repr(param.default) if plain else "..."
+    return f"{text} = {shown}"
+
+
+def _writable(name: str) -> bool:
+    """Whether a plan can write ``name`` as a keyword argument."""
+    return (
+        name.isascii()
+        and name.isidentifier()
+        and not keyword.iskeyword(name)
+        and not name.startswith("_")
+    )
+
+
+def _plain(value: object) -> bool:
+    """Whether ``value`` is atoms, lists and string-keyed dicts only: a plan literal."""
+    if type(value) in ATOMS:
+        return True
+    if type(value) is list:
+        return all(_plain(item) for item in value)
+    if type(value) is dict:
+        return all(type(key) is str and _plain(item) for key, item in value.items())
+    return False

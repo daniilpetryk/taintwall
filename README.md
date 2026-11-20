@@ -118,6 +118,7 @@ Full version in [`docs/design.md`](docs/design.md#threat-model).
 - [ ] **2** Planner and reader, tool registry, plan checker with typed retry
   - [x] What planners write ([`docs/planner-plans.md`](docs/planner-plans.md)): with the language stated in the prompt, 19–88% of plans parse, depending on the model; what to add to the language
   - [x] Plan language v2: string methods, `record.get`, number formats, `is None`, `a if c else b`, `+=`, more builtins; the same plans now parse at 44–100%
+  - [x] Tool registry from trusted specs, a hook before every tool call, AgentDojo functions as tools
 - [ ] **3** Policy engine, plan-level approval, both flow modes benchmarked
 - [ ] **4** Persistent label store, CrAIBench integration, anvil environment
 - [ ] **5** Simulation with effect accounting, Go signer
