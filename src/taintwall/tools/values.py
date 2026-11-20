@@ -5,7 +5,8 @@
 Arguments leave the plan as plain Python (lists for tuples, dicts for
 records). Results come back labeled: every atom, list element and record
 field gets the result's label, so a field read later joins it with the
-record's (Q2). Objects with ``model_dump`` (pydantic models) become records,
+record's (Q2). Objects with ``model_dump`` (pydantic models) become records
+keyed as their schemas name them (by alias),
 enums their values, dates their ISO text. A key that is not a record field
 name, an unknown type, or nesting past ``MAX_VALUE_DEPTH`` is refused rather
 than guessed at.
@@ -64,14 +65,14 @@ def _labeled(value: object, label: Label, depth: int) -> Labeled[object]:
 
 
 def _simple(value: object) -> object:
-    """Enums by value, dates as ISO text, models as their fields."""
+    """Enums by value, dates as ISO text, models as their fields, named by alias."""
     if isinstance(value, enum.Enum):
         return value.value
     if isinstance(value, dt.date | dt.time):
         return value.isoformat()
     dump = getattr(value, "model_dump", None)
     if callable(dump):
-        return dump()
+        return dump(by_alias=True)
     return value
 
 

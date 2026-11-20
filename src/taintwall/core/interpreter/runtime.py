@@ -3,7 +3,7 @@
 """The interpreter entry point: one requester, one set of tools, many runs."""
 
 from collections.abc import Mapping
-from typing import Final
+from typing import Final, Required, TypedDict
 
 from taintwall.core.interpreter.control import Flow, ImplicitFlows
 from taintwall.core.interpreter.evaluator import Evaluator, RunResult
@@ -29,6 +29,19 @@ class InvalidFlowsError(ValueError):
 
     def __init__(self) -> None:
         super().__init__("flows must be an ImplicitFlows member")
+
+
+class InterpreterOptions(TypedDict, total=False):
+    """The interpreter's options besides its tools, hook and readers.
+
+    Lets a layer that may not import the mint (``taintwall.tools``) pass a
+    mint through to the interpreter it builds.
+    """
+
+    requester: Required[Source]
+    mint: Required[Mint]
+    limits: Limits | None
+    flows: ImplicitFlows
 
 
 class Interpreter:

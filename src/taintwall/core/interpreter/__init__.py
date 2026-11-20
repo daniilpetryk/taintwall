@@ -26,6 +26,7 @@ from taintwall.core.interpreter.evaluator import RunResult
 from taintwall.core.interpreter.limits import InvalidLimitError, Limits
 from taintwall.core.interpreter.runtime import (
     Interpreter,
+    InterpreterOptions,
     InvalidFlowsError,
     InvalidRequesterError,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "Hooks",
     "ImplicitFlows",
     "Interpreter",
+    "InterpreterOptions",
     "InvalidFlowsError",
     "InvalidLimitError",
     "InvalidRequesterError",

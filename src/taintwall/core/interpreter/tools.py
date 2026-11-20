@@ -153,7 +153,8 @@ class Toolbox:
         result = _call_isolated(tool, arguments)
         if not isinstance(result, Labeled):
             # Whether a tool fails depends on its environment, not only on
-            # its arguments, so the failure carries the tool's source.
+            # its arguments, so the failure carries the tool's source; the
+            # evaluator joins the labels of the arguments it read.
             raise LabeledPlanError(error_at(PlanErrorCode.TOOL_FAILED, node, name), stamp)
         # The stamp means a tool cannot launder data by returning it under a
         # trusted label it received.

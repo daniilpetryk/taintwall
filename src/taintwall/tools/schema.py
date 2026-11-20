@@ -55,14 +55,16 @@ class ListOf:
 class RecordOf:
     """A record with these fields; ``name`` is how a signature shows it.
 
-    Fields named in ``optional`` may be left out; the others must be present,
-    and no other key may be: a plan cannot slip an undeclared field to a tool.
-    A record without declared fields is an open mapping.
+    Fields named in ``optional`` may be left out; the others must be present.
+    A closed record takes no other key, so a plan cannot slip an undeclared
+    field to a tool; an open one (a schema allowing additional properties, or
+    one without declared fields) takes any.
     """
 
     name: str
     fields: tuple[tuple[str, "ValueType"], ...]
     optional: frozenset[str] = frozenset()
+    closed: bool = True
 
 
 type ValueType = Scalar | OneOf | Maybe | ListOf | RecordOf
@@ -109,9 +111,9 @@ def accepts(expected: ValueType, value: object) -> bool:
 
 
 def _fits(record: RecordOf, value: dict[object, object]) -> bool:
-    """Whether a dict has a record's fields, of their types, and no others."""
+    """Whether a dict has a record's fields, of their types, and no others if closed."""
     names = {name for name, _ in record.fields}
-    if record.fields and not set(value) <= names:
+    if record.closed and record.fields and not set(value) <= names:
         return False
     return all(
         accepts(field, value[name]) if name in value else name in record.optional
@@ -130,7 +132,7 @@ def render(expected: ValueType) -> str:
             return f"{render(inner)} | None"
         case ListOf(item):
             return f"list[{render(item)}]"
-        case RecordOf(name, fields, _):
+        case RecordOf(name, fields, _, _):
             # A record without declared fields is an open mapping.
             return name if fields else "dict"
 
@@ -140,7 +142,7 @@ def records_in(expected: ValueType) -> list[RecordOf]:
     match expected:
         case Maybe(inner) | ListOf(inner):
             return records_in(inner)
-        case RecordOf(_, fields, _) if fields:
+        case RecordOf(_, fields, _, _) if fields:
             nested = [record for _, field in fields for record in records_in(field)]
             return [*nested, expected]
         case _:
@@ -245,4 +247,6 @@ def _object(schema: Schema, defs: Mapping[str, Schema]) -> ValueType:
     if not isinstance(required, list):
         raise UnsupportedSchemaError(_REQUIRED_KEY)
     optional = frozenset(name for name, _ in fields) - {str(name) for name in required}
-    return RecordOf(str(schema.get("title", "Record")), fields, optional)
+    # Pydantic writes additionalProperties only for models that allow extra keys.
+    closed = schema.get("additionalProperties", False) is False
+    return RecordOf(str(schema.get("title", "Record")), fields, optional, closed)

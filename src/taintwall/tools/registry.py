@@ -2,20 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """The tool registry: specs from trusted configuration, and their implementations.
 
-``tools()`` gives the interpreter one wrapper per tool: it binds the plan's
-arguments to the tool's parameters as plain Python, calls the
-implementation, and labels the result with the tool's source and readers
-(``values.to_labeled``). ``call_log()`` gives a fresh hook for one run.
+``interpreter()`` is the one way to run plans over the tools: it wires one
+wrapper per tool, their readers, any policies and a fresh call log. A wrapper
+binds the plan's arguments to the tool's parameters as plain Python, calls
+the implementation, and labels the result with the tool's source and readers
+(``values.to_labeled``).
 Implementations are ordinary Python callables taking keyword arguments, so a
 benchmark's functions or an MCP client can stand behind a spec unchanged.
 """
 
 from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
+from typing import Unpack
 
-from taintwall.core.interpreter import CallHook, Hooks, ImplicitFlows, Interpreter, Limits, Tool
+from taintwall.core.interpreter import CallHook, Hooks, Interpreter, InterpreterOptions, Tool
 from taintwall.core.labels import Label, Labeled, Readers, Source
-from taintwall.core.mint import Mint
 from taintwall.tools.calls import CallLog
 from taintwall.tools.schema import RecordOf, accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
@@ -75,7 +76,7 @@ class Registry:
         """Who may see each tool's results and failures: the interpreter's ``readers``."""
         return self._readers
 
-    def tools(self) -> Mapping[str, Tool]:
+    def _tools(self) -> Mapping[str, Tool]:
         """One interpreter tool per spec."""
         return {name: _wrap(spec, run) for name, (spec, run) in self._entries.items()}
 
@@ -85,34 +86,19 @@ class Registry:
         signatures = (spec.signature() for spec in self._specs.values())
         return "\n\n".join((*classes, *signatures))
 
-    def call_log(self) -> CallLog:
-        """A fresh hook that checks and records the calls of one run."""
-        return CallLog(self.specs)
-
     def interpreter(
-        self,
-        *,
-        requester: Source,
-        mint: Mint,
-        limits: Limits | None = None,
-        flows: ImplicitFlows = ImplicitFlows.STRICT,
-        policies: Iterable[CallHook] = (),
+        self, *, policies: Iterable[CallHook] = (), **options: Unpack[InterpreterOptions]
     ) -> tuple[Interpreter, CallLog]:
         """An interpreter over these tools, wired as they must be, and its call log.
 
         Tools, their readers and the call log go in together, so none can be
         forgotten. ``policies`` run before the log: a refused call is never
-        recorded as made.
+        recorded as made. ``options`` are the interpreter's own (requester,
+        mint, limits, flows).
         """
-        log = self.call_log()
+        log = CallLog(self._specs)
         interpreter = Interpreter(
-            self.tools(),
-            requester=requester,
-            mint=mint,
-            limits=limits,
-            flows=flows,
-            hook=Hooks(*policies, log),
-            readers=self.readers,
+            self._tools(), hook=Hooks(*policies, log), readers=self.readers, **options
         )
         return interpreter, log
 

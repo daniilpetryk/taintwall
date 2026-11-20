@@ -16,4 +16,4 @@ The interpreter takes a `CallHook` that runs before every tool call, after the a
 
 ## Consequences
 
-The planner's prompt, the static checker (PR 2) and the replanning loop read the same specs. Stage 3's policy engine becomes another hook. For AgentDojo, `bench/agentdojo/registry.py` builds specs from the suite's own function definitions; effects and readers per function are listed there, and unknown functions count as changing something.
+The planner's prompt, the static checker (PR 2) and the replanning loop read the same specs. Stage 3's policy engine becomes another hook. For AgentDojo, `bench/agentdojo/registry.py` builds specs from the suite's own function definitions; effects and readers per function are listed there, and unknown functions count as having every effect.

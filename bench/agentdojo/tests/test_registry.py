@@ -33,6 +33,7 @@ def test_every_banking_function_has_a_spec() -> None:
     assert specs["send_money"].effects.outward
     assert specs["schedule_transaction"].effects.outward
     assert not specs["update_password"].effects.outward
+
     assert specs["get_balance"].effects.read_only
     assert specs["get_balance"].returns is Scalar.FLOAT
     transactions = specs["get_most_recent_transactions"]
@@ -92,3 +93,24 @@ def test_parameters_are_named_by_alias() -> None:
         name="aliased", description="Aliased.", parameters=Arguments, return_type=str
     )
     assert "(from: str) -> str" in spec_for(function, "banking").signature()
+
+
+def test_parameters_are_named_by_validation_alias() -> None:
+    class Arguments(BaseModel):
+        sender: str = Field(validation_alias="to")
+
+    function = SimpleNamespace(
+        name="aliased", description="Aliased.", parameters=Arguments, return_type=str
+    )
+    assert "(to: str) -> str" in spec_for(function, "banking").signature()
+
+
+def test_an_unlisted_function_has_every_effect() -> None:
+    class Arguments(BaseModel):
+        pass
+
+    function = SimpleNamespace(
+        name="new_thing", description="New.", parameters=Arguments, return_type=int
+    )
+    effects = spec_for(function, "banking").effects
+    assert (effects.writes, effects.moves_funds, effects.outward) == (True, True, True)

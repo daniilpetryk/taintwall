@@ -115,6 +115,22 @@ def _param(param: Param) -> str:
     text = f"{param.name}: {render(param.type)}"
     if param.required:
         return text
-    # A default not of the parameter's type (a date, a model) is no plan value.
-    shown = repr(param.default) if accepts(param.type, param.default) else "..."
+    # A default that is no plan value (a date, a model), or not of the
+    # parameter's type, shows as "...": its repr would not parse in a plan.
+    plain = _plain(param.default) and accepts(param.type, param.default)
+    shown = repr(param.default) if plain else "..."
     return f"{text} = {shown}"
+
+
+def _plain(value: object) -> bool:
+    """Whether ``value`` is atoms, lists and string-keyed dicts only: a plan literal."""
+    if type(value) in _ATOMS:
+        return True
+    if type(value) is list:
+        return all(_plain(item) for item in value)
+    if type(value) is dict:
+        return all(type(key) is str and _plain(item) for key, item in value.items())
+    return False
+
+
+_ATOMS: Final = (str, int, float, bool, type(None))

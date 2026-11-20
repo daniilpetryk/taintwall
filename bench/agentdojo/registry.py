@@ -5,8 +5,9 @@
 Each function becomes a ``ToolSpec``: parameters from its pydantic input
 schema, its result type from its return annotation, its description from
 AgentDojo's own source (trusted configuration, not a tool server). Effects
-and readers are this file's choices, per suite: unknown functions count as
-changing something, the fail-safe default for the replanning rule (Q3).
+and readers are this file's choices, per suite: an unlisted function counts
+as having every effect (writes, moves funds, sends outward), the fail-safe
+default for the replanning rule (Q3) and for policies.
 The implementation runs the function in the task's environment through
 AgentDojo's runtime; an error comes back as an exception, so the interpreter
 reports ``TOOL_FAILED`` and drops its text (it may carry an injection).
@@ -32,6 +33,7 @@ from taintwall.tools import (
 _FUNDS: Final = Effects(moves_funds=True, outward=True)
 _WRITES: Final = Effects(writes=True)
 _READS: Final = Effects()
+_UNKNOWN: Final = Effects(writes=True, moves_funds=True, outward=True)
 
 EFFECTS: Final[Mapping[str, Mapping[str, Effects]]] = {
     "banking": {
@@ -48,7 +50,7 @@ EFFECTS: Final[Mapping[str, Mapping[str, Effects]]] = {
         "update_user_info": _WRITES,
     },
 }
-"""What each function may change, per suite; anything unlisted is ``writes``."""
+"""What each function may change, per suite; anything unlisted has every effect."""
 
 READERS: Final[Mapping[str, Readers]] = {"banking": Readers.USER}
 """Who may see a suite's results (Q9): bank data is the user's own."""
@@ -65,9 +67,10 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
     """The spec of one AgentDojo function."""
     schema = function.parameters.model_json_schema()
     defs = schema.get("$defs", {})
-    # Properties are named by alias, as the model validates its input.
+    # Properties are named as the model validates its input: by validation
+    # alias, else by alias, else by attribute name.
     fields = {
-        field.alias or name: field for name, field in function.parameters.model_fields.items()
+        _input_name(name, field): field for name, field in function.parameters.model_fields.items()
     }
     params = tuple(
         Param(name, from_json_schema(prop, defs))
@@ -84,9 +87,15 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
         description=function.description,
         params=params,
         returns=returns,
-        effects=EFFECTS.get(suite, {}).get(function.name, _WRITES),
+        effects=EFFECTS.get(suite, {}).get(function.name, _UNKNOWN),
         readers=READERS.get(suite, Readers.USER),
     )
+
+
+def _input_name(name: str, field: Any) -> str:  # noqa: ANN401 - pydantic's FieldInfo
+    """The name a model's JSON schema gives a field in validation mode."""
+    alias = field.validation_alias
+    return alias if isinstance(alias, str) else field.alias or name
 
 
 def registry(suite: Any, environment: Any, suite_name: str) -> Registry:  # noqa: ANN401 - untyped

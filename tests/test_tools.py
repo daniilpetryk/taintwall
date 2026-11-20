@@ -28,6 +28,7 @@ from taintwall.core.values import Record
 from taintwall.tools import (
     READ_ONLY,
     ArgumentError,
+    CallLog,
     ConversionError,
     DuplicateToolError,
     Effects,
@@ -77,6 +78,7 @@ class TestSchema:
             (POINT, {"tag": None}, False),
             (POINT, {"x": 1, "memo": "pay me"}, False),
             (RecordOf("Record", ()), {"any": 1}, True),
+            (dataclasses.replace(POINT, closed=False), {"x": 1, "more": 2}, True),
             (POINT, {"x": "1", "tag": None}, False),
             (POINT, [1], False),
         ],
@@ -182,7 +184,8 @@ class Model:
 
     amount: float
 
-    def model_dump(self) -> dict[str, object]:
+    def model_dump(self, *, by_alias: bool = False) -> dict[str, object]:
+        assert by_alias, "results are keyed as the schema names them"
         return {"amount": self.amount, "when": dt.date(2022, 3, 4), "color": Color.RED}
 
 
@@ -264,7 +267,8 @@ class TestRegistry:
 
     def test_without_a_log_the_wrapper_still_checks(self) -> None:
         tools, sent = self.make()
-        interpreter = Interpreter(tools.tools(), requester=MINT.owner(), mint=MINT)
+        wrappers = tools._tools()  # noqa: SLF001 - the wrapper alone, without interpreter()
+        interpreter = Interpreter(wrappers, requester=MINT.owner(), mint=MINT)
         with pytest.raises(LabeledPlanError) as err:
             interpreter.run(parse_plan("x = send('a', 'ten')"))
         assert err.value.code is PlanErrorCode.TOOL_FAILED
@@ -418,7 +422,7 @@ class TestSafety:
 
     def test_the_wrapper_names_a_wrong_result_type(self) -> None:
         spec = ToolSpec("n", "N.", (), Scalar.INT, READ_ONLY)
-        tool = Registry([(spec, lambda: "x")]).tools()["n"]
+        tool = Registry([(spec, lambda: "x")])._tools()["n"]  # noqa: SLF001 - the wrapper alone
         with pytest.raises(ResultTypeError) as err:
             tool()
         assert str(err.value) == "n returned a value of the wrong type"
@@ -430,12 +434,8 @@ class TestSafety:
             ran.append(True)
             return Labeled(1, LABEL)
 
-        tools = Registry([])
         interpreter = Interpreter(
-            {**tools.tools(), "other": other},
-            requester=MINT.owner(),
-            mint=MINT,
-            hook=tools.call_log(),
+            {"other": other}, requester=MINT.owner(), mint=MINT, hook=CallLog({})
         )
         with pytest.raises(LabeledPlanError) as err:
             interpreter.run(parse_plan("y = 1\nx = other()"))
@@ -602,3 +602,39 @@ class TestPrecision:
         with pytest.raises(LabeledPlanError) as err:
             small.run(plan)
         assert err.value.code is PlanErrorCode.STEP_LIMIT
+
+    def test_a_schema_allowing_more_properties_is_an_open_record(self) -> None:
+        schema = {"type": "object", "properties": {"a": {"type": "integer"}}}
+        assert from_json_schema(schema) == RecordOf(
+            "Record", (("a", Scalar.INT),), frozenset({"a"})
+        )
+        loose = from_json_schema({**schema, "additionalProperties": True})
+        assert loose == RecordOf("Record", (("a", Scalar.INT),), frozenset({"a"}), closed=False)
+
+    def test_a_failure_carries_its_arguments_labels(self) -> None:
+        def broken(**_: object) -> int:
+            raise RuntimeError
+
+        spec = ToolSpec("broken", "B.", (Param("v", Scalar.INT),), Scalar.INT, READ_ONLY)
+        flag = ToolSpec("flag", "F.", (), Scalar.INT, READ_ONLY)
+        tools = Registry([(spec, broken), (flag, lambda: 1)])
+        with pytest.raises(LabeledPlanError) as err:
+            run("f = flag()\nx = broken(f)", tools)
+        assert {Source.tool("broken"), Source.tool("flag")} <= err.value.label.sources
+
+    @pytest.mark.parametrize(
+        ("default", "shown"),
+        [
+            (dt.date(2026, 1, 1), "..."),
+            ([1, "a"], "[1, 'a']"),
+            ([dt.date(2026, 1, 1)], "..."),
+            ({"k": None}, "{'k': None}"),
+            ({1: None}, "..."),
+            ({"k": dt.date(2026, 1, 1)}, "..."),
+        ],
+    )
+    def test_defaults_of_any_type_show_only_as_plan_literals(
+        self, default: object, shown: str
+    ) -> None:
+        spec = ToolSpec("d", "D.", (Param("v", Scalar.ANY, default),), Scalar.STR, READ_ONLY)
+        assert spec.signature().startswith(f"def d(v: object = {shown}) -> str:")
