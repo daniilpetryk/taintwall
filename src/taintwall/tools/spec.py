@@ -72,13 +72,18 @@ class ToolSpec:
     description: str
     params: tuple[Param, ...]
     returns: ValueType
-    effects: Effects = READ_ONLY
-    readers: Readers = Readers.PUBLIC
+    effects: Effects
+    """Required: a forgotten effect would let a plan be retried after a side effect (Q3)."""
+    readers: Readers = Readers.USER
+    """Private by default (Q9); results anyone may see opt into ``PUBLIC``."""
 
     def bind(
         self, positional: tuple[object, ...], keyword: Mapping[str, object]
     ) -> dict[str, object]:
-        """Plain argument values by parameter name, defaults filled in, types checked.
+        """The arguments the call gives, by parameter name, with their types checked.
+
+        Defaults are not filled in: they are the implementation's, and the
+        spec only shows them in the signature.
 
         Raises:
             ArgumentError: too many, missing, unknown or ill-typed arguments.
@@ -96,7 +101,6 @@ class ToolSpec:
             if param.name not in bound:
                 if param.required:
                     raise ArgumentError(self.name)
-                bound[param.name] = param.default
             elif not accepts(param.type, bound[param.name]):
                 raise ArgumentError(self.name)
         return bound

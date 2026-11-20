@@ -102,8 +102,27 @@ def render(expected: ValueType) -> str:
             return f"{render(inner)} | None"
         case ListOf(item):
             return f"list[{render(item)}]"
-        case RecordOf(name, _):
-            return name
+        case RecordOf(name, fields):
+            # A record without declared fields is an open mapping.
+            return name if fields else "dict"
+
+
+def records_in(expected: ValueType) -> list[RecordOf]:
+    """Record types with declared fields inside ``expected``, inner ones first."""
+    match expected:
+        case Maybe(inner) | ListOf(inner):
+            return records_in(inner)
+        case RecordOf(_, fields) if fields:
+            nested = [record for _, field in fields for record in records_in(field)]
+            return [*nested, expected]
+        case _:
+            return []
+
+
+def render_record(record: RecordOf) -> str:
+    """A record type as a planner reads it: a class with typed fields."""
+    fields = "".join(f"\n    {name}: {render(kind)}" for name, kind in record.fields)
+    return f"class {record.name}:{fields}"
 
 
 type Schema = Mapping[str, object]

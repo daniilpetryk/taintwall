@@ -15,11 +15,19 @@ from collections.abc import Callable, Iterable, Mapping
 from taintwall.core.interpreter import Tool
 from taintwall.core.labels import Label, Labeled, Source
 from taintwall.tools.calls import CallLog
+from taintwall.tools.schema import accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
 from taintwall.tools.values import to_labeled, to_python
 
 type Implementation = Callable[..., object]
 """What runs a tool: keyword arguments of plain Python values, any result."""
+
+
+class ResultTypeError(TypeError):
+    """A tool returned a value of another type than its spec promises."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"{name} returned a value of the wrong type")
 
 
 class DuplicateToolError(ValueError):
@@ -48,6 +56,18 @@ class Registry:
         """One interpreter tool per spec."""
         return {name: _wrap(spec, run) for name, (spec, run) in self._entries.items()}
 
+    def describe(self) -> str:
+        """Every record type once, then every tool's signature: what a planner reads."""
+        records = {
+            record.name: record
+            for spec in self.specs.values()
+            for kind in (*(param.type for param in spec.params), spec.returns)
+            for record in records_in(kind)
+        }
+        classes = (render_record(record) for record in records.values())
+        signatures = (spec.signature() for spec in self.specs.values())
+        return "\n\n".join((*classes, *signatures))
+
     def call_log(self) -> CallLog:
         """A fresh hook that checks and records the calls of one run."""
         return CallLog(self.specs)
@@ -62,6 +82,10 @@ def _wrap(spec: ToolSpec, run: Implementation) -> Tool:
             tuple(to_python(item) for item in positional),
             {name: to_python(item) for name, item in keyword.items()},
         )
-        return to_labeled(run(**arguments), label)
+        result = to_labeled(run(**arguments), label)
+        # The planner was promised spec.returns; anything else is a failed call.
+        if not accepts(spec.returns, to_python(result)):
+            raise ResultTypeError(spec.name)
+        return result
 
     return tool

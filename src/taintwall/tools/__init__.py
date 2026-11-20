@@ -11,7 +11,12 @@ Modules, from the entry point down (``pyproject.toml`` enforces the order):
 """
 
 from taintwall.tools.calls import CallLog, CallRecord
-from taintwall.tools.registry import DuplicateToolError, Implementation, Registry
+from taintwall.tools.registry import (
+    DuplicateToolError,
+    Implementation,
+    Registry,
+    ResultTypeError,
+)
 from taintwall.tools.schema import (
     ListOf,
     Maybe,
@@ -21,7 +26,9 @@ from taintwall.tools.schema import (
     ValueType,
     accepts,
     from_json_schema,
+    records_in,
     render,
+    render_record,
 )
 from taintwall.tools.spec import READ_ONLY, ArgumentError, Effects, Param, ToolSpec
 from taintwall.tools.values import ConversionError, to_labeled, to_python
@@ -40,13 +47,16 @@ __all__ = [
     "Param",
     "RecordOf",
     "Registry",
+    "ResultTypeError",
     "Scalar",
     "ToolSpec",
     "UnsupportedSchemaError",
     "ValueType",
     "accepts",
     "from_json_schema",
+    "records_in",
     "render",
+    "render_record",
     "to_labeled",
     "to_python",
 ]

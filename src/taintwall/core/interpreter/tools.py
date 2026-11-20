@@ -73,6 +73,22 @@ class CallHook(Protocol):
         ...
 
 
+class Hooks:
+    """Several hooks, run in the order given; the first refusal stops the call.
+
+    Put hooks that refuse (policies) before hooks that record (the call log),
+    so a refused call is never recorded as made.
+    """
+
+    def __init__(self, *hooks: CallHook) -> None:
+        self._hooks = hooks
+
+    def before(self, call: PendingCall) -> None:
+        """Run every hook on ``call``, in order."""
+        for hook in self._hooks:
+            hook.before(call)
+
+
 class ToolNameClashError(ValueError):
     """A tool would shadow a builtin of the plan language."""
 

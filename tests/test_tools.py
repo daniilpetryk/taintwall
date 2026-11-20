@@ -8,8 +8,15 @@ import enum
 
 import pytest
 
-from taintwall.core.errors import PlanErrorCode
-from taintwall.core.interpreter import Interpreter, LabeledPlanError, PendingCall, RunResult, Tool
+from taintwall.core.errors import PlanError, PlanErrorCode
+from taintwall.core.interpreter import (
+    Hooks,
+    Interpreter,
+    LabeledPlanError,
+    PendingCall,
+    RunResult,
+    Tool,
+)
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled, Readers, Source
 from taintwall.core.mint import Mint
@@ -26,6 +33,7 @@ from taintwall.tools import (
     Param,
     RecordOf,
     Registry,
+    ResultTypeError,
     Scalar,
     ToolSpec,
     UnsupportedSchemaError,
@@ -122,8 +130,8 @@ SEND = ToolSpec(
 
 
 class TestSpec:
-    def test_binds_positional_keyword_and_defaults(self) -> None:
-        assert SEND.bind(("a",), {"amount": 2}) == {"to": "a", "amount": 2, "memo": None}
+    def test_binds_positional_and_keyword_arguments_only(self) -> None:
+        assert SEND.bind(("a",), {"amount": 2}) == {"to": "a", "amount": 2}
 
     @pytest.mark.parametrize(
         ("positional", "keyword"),
@@ -213,7 +221,7 @@ class TestRegistry:
             sent.append(arguments)
             return True
 
-        balance = ToolSpec("balance", "Balance.", (), Scalar.FLOAT, readers=Readers.USER)
+        balance = ToolSpec("balance", "Balance.", (), Scalar.FLOAT, READ_ONLY)
         return Registry([(SEND, send), (balance, lambda: 12.5)]), sent
 
     def test_results_carry_the_tool_and_its_readers(self) -> None:
@@ -227,7 +235,7 @@ class TestRegistry:
     def test_a_call_with_effects_is_recorded_under_its_pc(self) -> None:
         tools, sent = self.make()
         _, log = run("b = balance()\nif b > 1:\n    x = send('a', 1.0)", tools)
-        assert sent == [{"to": "a", "amount": 1.0, "memo": None}]
+        assert sent == [{"to": "a", "amount": 1.0}]
         assert log.effects_happened  # type: ignore[attr-defined]
         record = log.records[-1]  # type: ignore[attr-defined]
         assert (record.name, record.line, record.effects.moves_funds) == ("send", 3, True)
@@ -334,8 +342,10 @@ class TestEdges:
         assert accepts(Maybe(Scalar.STR), "a")
 
     def test_defaults_fill_in_with_their_value(self) -> None:
-        spec = ToolSpec("t", "T.", (Param("n", Scalar.INT, 100),), Scalar.INT)
-        assert spec.bind((), {}) == {"n": 100}
+        # Defaults are the implementation's: the spec only shows them.
+        spec = ToolSpec("t", "T.", (Param("n", Scalar.INT, 100),), Scalar.INT, READ_ONLY)
+        assert spec.bind((), {}) == {}
+        assert spec.signature().startswith("def t(n: int = 100) -> int:")
 
     @pytest.mark.parametrize(
         ("bad", "message"), [(b"x", "bytes"), ({"Bad": 1}, "a key that is not a field name")]
@@ -363,3 +373,100 @@ class TestEdges:
         _, log = run("x = send('a', amount=2.0, memo='rent')", Registry([(SEND, send)]))
         assert sent == [{"to": "a", "amount": 2.0, "memo": "rent"}]
         assert log.effects_happened  # type: ignore[attr-defined]
+
+
+class TestSafety:
+    def test_results_are_private_unless_a_spec_says_public(self) -> None:
+        spec = ToolSpec("t", "T.", (), Scalar.INT, READ_ONLY)
+        assert spec.readers is Readers.USER
+
+    def test_effects_must_be_stated(self) -> None:
+        with pytest.raises(TypeError):
+            ToolSpec("t", "T.", (), Scalar.INT)  # type: ignore[call-arg]
+
+    def test_the_implementations_defaults_apply(self) -> None:
+        def greet(name: str, greeting: str = "Hello") -> str:
+            return f"{greeting} {name}"
+
+        spec = ToolSpec(
+            "greet",
+            "Greet.",
+            (Param("name", Scalar.STR), Param("greeting", Maybe(Scalar.STR), None)),
+            Scalar.STR,
+            READ_ONLY,
+        )
+        result, _ = run("x = greet('Bob')", Registry([(spec, greet)]))
+        assert result.variables["x"].value == "Hello Bob"
+
+    def test_a_result_of_the_wrong_type_is_a_failed_call(self) -> None:
+        spec = ToolSpec("n", "N.", (), Scalar.INT, READ_ONLY)
+        with pytest.raises(LabeledPlanError) as err:
+            run("x = n()", Registry([(spec, lambda: "not an int")]))
+        assert (err.value.code, err.value.detail) == (PlanErrorCode.TOOL_FAILED, "n")
+
+    def test_the_wrapper_names_a_wrong_result_type(self) -> None:
+        spec = ToolSpec("n", "N.", (), Scalar.INT, READ_ONLY)
+        tool = Registry([(spec, lambda: "x")]).tools()["n"]
+        with pytest.raises(ResultTypeError) as err:
+            tool()
+        assert str(err.value) == "n returned a value of the wrong type"
+
+    def test_a_tool_without_a_spec_does_not_run(self) -> None:
+        ran: list[bool] = []
+
+        def other() -> Labeled[object]:
+            ran.append(True)
+            return Labeled(1, LABEL)
+
+        tools = Registry([])
+        interpreter = Interpreter(
+            {**tools.tools(), "other": other},
+            requester=MINT.owner(),
+            mint=MINT,
+            hook=tools.call_log(),
+        )
+        with pytest.raises(LabeledPlanError) as err:
+            interpreter.run(parse_plan("y = 1\nx = other()"))
+        assert (err.value.code, err.value.line, err.value.detail) == (
+            PlanErrorCode.UNKNOWN_TOOL,
+            2,
+            "other",
+        )
+        assert ran == []
+
+    def test_describe_defines_each_record_once_then_the_signatures(self) -> None:
+        inner = RecordOf("Inner", (("v", Scalar.INT),))
+        outer = RecordOf("Outer", (("one", inner), ("many", ListOf(inner))))
+        spec = ToolSpec("get", "Get.", (Param("q", Maybe(outer)),), ListOf(outer), READ_ONLY)
+        text = Registry([(spec, print)]).describe()
+        assert text == (
+            "class Inner:\n    v: int\n\n"
+            "class Outer:\n    one: Inner\n    many: list[Inner]\n\n"
+            'def get(q: Outer | None) -> list[Outer]:\n    """Get."""'
+        )
+        assert render(RecordOf("Record", ())) == "dict"
+
+
+class TestHooks:
+    def test_run_in_order_and_the_first_refusal_stops_the_rest(self) -> None:
+        seen: list[str] = []
+
+        class Refuse:
+            def before(self, call: PendingCall) -> None:
+                seen.append("refuse")
+                raise PlanError(PlanErrorCode.BAD_ARGUMENTS, call.line, call.name)
+
+        class Record:
+            def before(self, call: PendingCall) -> None:
+                seen.append(f"record {call.name}")
+
+        tools: dict[str, Tool] = {"t": lambda: Labeled(1, LABEL)}
+        Interpreter(tools, requester=MINT.owner(), mint=MINT, hook=Hooks(Record())).run(
+            parse_plan("x = t()")
+        )
+        assert seen == ["record t"]
+        with pytest.raises(LabeledPlanError):
+            Interpreter(
+                tools, requester=MINT.owner(), mint=MINT, hook=Hooks(Refuse(), Record())
+            ).run(parse_plan("x = t()"))
+        assert seen == ["record t", "refuse"]

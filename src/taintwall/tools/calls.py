@@ -38,12 +38,16 @@ class CallLog:
         self._records: list[CallRecord] = []
 
     def before(self, call: PendingCall) -> None:
-        """Refuse ill-typed arguments; record the call.
+        """Refuse ill-typed arguments and tools without a spec; record the call.
 
         Raises:
-            PlanError: ``BAD_ARGUMENTS`` with the tool's name.
+            PlanError: ``BAD_ARGUMENTS`` with the tool's name, or
+                ``UNKNOWN_TOOL`` for a tool the registry has no spec for
+                (its effects are unknown, so it does not run).
         """
-        spec = self._specs[call.name]
+        spec = self._specs.get(call.name)
+        if spec is None:
+            raise PlanError(PlanErrorCode.UNKNOWN_TOOL, call.line, call.name)
         positional = tuple(to_python(item) for item in call.arguments.positional)
         keyword = {name: to_python(item) for name, item in call.arguments.keyword.items()}
         try:
