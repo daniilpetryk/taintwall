@@ -55,7 +55,9 @@ class ListOf:
 class RecordOf:
     """A record with these fields; ``name`` is how a signature shows it.
 
-    Fields named in ``optional`` may be left out; the others must be present.
+    Fields named in ``optional`` may be left out; the others must be present,
+    and no other key may be: a plan cannot slip an undeclared field to a tool.
+    A record without declared fields is an open mapping.
     """
 
     name: str
@@ -102,11 +104,19 @@ def accepts(expected: ValueType, value: object) -> bool:
             return value is None or accepts(inner, value)
         case ListOf(item):
             return type(value) is list and all(accepts(item, element) for element in value)
-        case RecordOf(_, fields, optional):
-            return type(value) is dict and all(
-                accepts(field, value[name]) if name in value else name in optional
-                for name, field in fields
-            )
+        case RecordOf():
+            return type(value) is dict and _fits(expected, value)
+
+
+def _fits(record: RecordOf, value: dict[object, object]) -> bool:
+    """Whether a dict has a record's fields, of their types, and no others."""
+    names = {name for name, _ in record.fields}
+    if record.fields and not set(value) <= names:
+        return False
+    return all(
+        accepts(field, value[name]) if name in value else name in record.optional
+        for name, field in record.fields
+    )
 
 
 def render(expected: ValueType) -> str:

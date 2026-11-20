@@ -96,6 +96,13 @@ class ToolNameClashError(ValueError):
         super().__init__(f"tool names clash with builtins: {', '.join(sorted(names))}")
 
 
+class UnknownReadersError(ValueError):
+    """Readers are given for names that are not tools: a typo would leave a tool public."""
+
+    def __init__(self, names: Iterable[str]) -> None:
+        super().__init__(f"readers for unknown tools: {', '.join(sorted(names))}")
+
+
 class Toolbox:
     """The tools of one interpreter, each with the source stamped on its results."""
 
@@ -109,6 +116,9 @@ class Toolbox:
         if clashes:
             raise ToolNameClashError(clashes)
         given = readers or {}
+        unknown = set(given) - set(tools)
+        if unknown:
+            raise UnknownReadersError(unknown)
         # Validates tool names as sources and readers up front (InvalidSourceError,
         # InvalidReadersError). The stamp labels failures too: whether a private
         # tool failed is as private as its results.

@@ -11,11 +11,14 @@ import pytest
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import (
     Hooks,
+    ImplicitFlows,
     Interpreter,
     LabeledPlanError,
+    Limits,
     PendingCall,
     RunResult,
     Tool,
+    UnknownReadersError,
 )
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled, Readers, Source
@@ -72,6 +75,8 @@ class TestSchema:
             (POINT, {"x": 1, "tag": None}, True),
             (POINT, {"x": 1}, True),
             (POINT, {"tag": None}, False),
+            (POINT, {"x": 1, "memo": "pay me"}, False),
+            (RecordOf("Record", ()), {"any": 1}, True),
             (POINT, {"x": "1", "tag": None}, False),
             (POINT, [1], False),
         ],
@@ -213,10 +218,7 @@ class TestValues:
 
 
 def run(plan: str, tools: Registry) -> tuple[RunResult, object]:
-    log = tools.call_log()
-    interpreter = Interpreter(
-        tools.tools(), requester=MINT.owner(), mint=MINT, hook=log, readers=tools.readers
-    )
+    interpreter, log = tools.interpreter(requester=MINT.owner(), mint=MINT)
     return interpreter.run(parse_plan(plan)), log
 
 
@@ -541,8 +543,62 @@ class TestPrecision:
         assert err.value.label.readers is Readers.USER
 
     def test_tools_not_named_in_readers_are_public(self) -> None:
-        tools: dict[str, Tool] = {"t": lambda: (_ for _ in ()).throw(RuntimeError())}
+        def broken() -> Labeled[object]:
+            raise RuntimeError
+
+        tools: dict[str, Tool] = {"t": broken}
         interpreter = Interpreter(tools, requester=MINT.owner(), mint=MINT)
         with pytest.raises(LabeledPlanError) as err:
             interpreter.run(parse_plan("x = t()"))
         assert err.value.label.readers is Readers.PUBLIC
+
+    def test_readers_for_a_name_that_is_not_a_tool_are_refused(self) -> None:
+        tools: dict[str, Tool] = {"t": lambda: Labeled(1, LABEL)}
+        with pytest.raises(UnknownReadersError) as err:
+            Interpreter(
+                tools,
+                requester=MINT.owner(),
+                mint=MINT,
+                readers={"u": Readers.USER, "v": Readers.USER, "t": Readers.USER},
+            )
+        assert str(err.value) == "readers for unknown tools: u, v"
+
+    def test_policies_run_before_the_log(self) -> None:
+        class Refuse:
+            def before(self, call: PendingCall) -> None:
+                raise PlanError(PlanErrorCode.BAD_ARGUMENTS, call.line, call.name)
+
+        spec = ToolSpec("t", "T.", (), Scalar.INT, Effects(writes=True))
+        interpreter, log = Registry([(spec, lambda: 1)]).interpreter(
+            requester=MINT.owner(), mint=MINT, policies=[Refuse()]
+        )
+        with pytest.raises(LabeledPlanError):
+            interpreter.run(parse_plan("x = t()"))
+        assert log.records == ()
+
+    def test_a_default_that_is_no_plan_value_shows_as_dots(self) -> None:
+        day = dt.date(2026, 1, 1)
+        spec = ToolSpec(
+            "d",
+            "D.",
+            (Param("on", Scalar.STR, day), Param("n", Scalar.INT, 2)),
+            Scalar.STR,
+            READ_ONLY,
+        )
+        assert spec.signature().startswith("def d(on: str = ..., n: int = 2) -> str:")
+
+    def test_the_wired_interpreter_keeps_its_limits_and_flows(self) -> None:
+        spec = ToolSpec("flag", "Flag.", (), Scalar.BOOL, READ_ONLY)
+        tools = Registry([(spec, lambda: True)])
+        plan = parse_plan("f = flag()\nif f:\n    x = 1\nelse:\n    x = 2")
+        lenient, _ = tools.interpreter(
+            requester=MINT.owner(), mint=MINT, flows=ImplicitFlows.LENIENT
+        )
+        strict, _ = tools.interpreter(requester=MINT.owner(), mint=MINT)
+        flag = Source.tool("flag")
+        assert flag not in lenient.run(plan).variables["x"].label.sources
+        assert flag in strict.run(plan).variables["x"].label.sources
+        small, _ = tools.interpreter(requester=MINT.owner(), mint=MINT, limits=Limits(max_steps=1))
+        with pytest.raises(LabeledPlanError) as err:
+            small.run(plan)
+        assert err.value.code is PlanErrorCode.STEP_LIMIT

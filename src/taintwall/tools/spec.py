@@ -113,4 +113,8 @@ class ToolSpec:
 
 def _param(param: Param) -> str:
     text = f"{param.name}: {render(param.type)}"
-    return text if param.required else f"{text} = {param.default!r}"
+    if param.required:
+        return text
+    # A default not of the parameter's type (a date, a model) is no plan value.
+    shown = repr(param.default) if accepts(param.type, param.default) else "..."
+    return f"{text} = {shown}"

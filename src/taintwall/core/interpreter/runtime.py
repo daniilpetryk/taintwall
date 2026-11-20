@@ -61,6 +61,7 @@ class Interpreter:
             ToolNameClashError: a tool shadows a builtin.
             InvalidSourceError: a tool name is not a valid source name.
             InvalidReadersError: a tool's readers are not a ``Readers`` member.
+            UnknownReadersError: ``readers`` names something that is not a tool.
             InvalidFlowsError: ``flows`` is not an ``ImplicitFlows`` member.
         """
         if requester.kind not in _REQUESTER_KINDS or requester.is_category:

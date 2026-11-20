@@ -29,7 +29,14 @@ from taintwall.core.interpreter.runtime import (
     InvalidFlowsError,
     InvalidRequesterError,
 )
-from taintwall.core.interpreter.tools import CallHook, Hooks, PendingCall, Tool, ToolNameClashError
+from taintwall.core.interpreter.tools import (
+    CallHook,
+    Hooks,
+    PendingCall,
+    Tool,
+    ToolNameClashError,
+    UnknownReadersError,
+)
 from taintwall.core.interpreter.trace import EventKind, TraceEvent
 
 __all__ = [
@@ -49,4 +56,5 @@ __all__ = [
     "Tool",
     "ToolNameClashError",
     "TraceEvent",
+    "UnknownReadersError",
 ]

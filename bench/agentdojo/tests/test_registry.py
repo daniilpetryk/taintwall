@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from registry import registry, spec_for
 
 from taintwall.core.errors import PlanErrorCode
-from taintwall.core.interpreter import Interpreter, LabeledPlanError, RunResult
+from taintwall.core.interpreter import LabeledPlanError, RunResult
 from taintwall.core.labels import Readers, Source
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
@@ -23,10 +23,7 @@ MINT = Mint()
 
 def run(plan: str) -> tuple[RunResult, CallLog]:
     tools = registry(SUITE, SUITE.load_and_inject_default_environment({}), "banking")
-    log = tools.call_log()
-    interpreter = Interpreter(
-        tools.tools(), requester=MINT.owner(), mint=MINT, hook=log, readers=tools.readers
-    )
+    interpreter, log = tools.interpreter(requester=MINT.owner(), mint=MINT)
     return interpreter.run(parse_plan(plan)), log
 
 
@@ -85,3 +82,13 @@ def test_defaults_are_the_real_ones_factories_included() -> None:
     )
     signature = spec_for(function, "banking").signature()
     assert "(tags: list[str] = ['rent'], n: int = 3) -> int" in signature
+
+
+def test_parameters_are_named_by_alias() -> None:
+    class Arguments(BaseModel):
+        sender: str = Field(alias="from")
+
+    function = SimpleNamespace(
+        name="aliased", description="Aliased.", parameters=Arguments, return_type=str
+    )
+    assert "(from: str) -> str" in spec_for(function, "banking").signature()

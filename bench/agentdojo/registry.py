@@ -65,7 +65,10 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
     """The spec of one AgentDojo function."""
     schema = function.parameters.model_json_schema()
     defs = schema.get("$defs", {})
-    fields = function.parameters.model_fields
+    # Properties are named by alias, as the model validates its input.
+    fields = {
+        field.alias or name: field for name, field in function.parameters.model_fields.items()
+    }
     params = tuple(
         Param(name, from_json_schema(prop, defs))
         if fields[name].is_required()

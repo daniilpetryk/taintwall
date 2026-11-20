@@ -13,8 +13,9 @@ benchmark's functions or an MCP client can stand behind a spec unchanged.
 from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
 
-from taintwall.core.interpreter import Tool
+from taintwall.core.interpreter import CallHook, Hooks, ImplicitFlows, Interpreter, Limits, Tool
 from taintwall.core.labels import Label, Labeled, Readers, Source
+from taintwall.core.mint import Mint
 from taintwall.tools.calls import CallLog
 from taintwall.tools.schema import RecordOf, accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
@@ -62,6 +63,7 @@ class Registry:
             self._entries[spec.name] = (spec, implementation)
         self._specs = MappingProxyType({name: spec for name, (spec, _) in self._entries.items()})
         self._records = _records(self._specs.values())
+        self._readers = MappingProxyType({name: spec.readers for name, spec in self._specs.items()})
 
     @property
     def specs(self) -> Mapping[str, ToolSpec]:
@@ -71,7 +73,7 @@ class Registry:
     @property
     def readers(self) -> Mapping[str, Readers]:
         """Who may see each tool's results and failures: the interpreter's ``readers``."""
-        return {name: spec.readers for name, spec in self._specs.items()}
+        return self._readers
 
     def tools(self) -> Mapping[str, Tool]:
         """One interpreter tool per spec."""
@@ -86,6 +88,33 @@ class Registry:
     def call_log(self) -> CallLog:
         """A fresh hook that checks and records the calls of one run."""
         return CallLog(self.specs)
+
+    def interpreter(
+        self,
+        *,
+        requester: Source,
+        mint: Mint,
+        limits: Limits | None = None,
+        flows: ImplicitFlows = ImplicitFlows.STRICT,
+        policies: Iterable[CallHook] = (),
+    ) -> tuple[Interpreter, CallLog]:
+        """An interpreter over these tools, wired as they must be, and its call log.
+
+        Tools, their readers and the call log go in together, so none can be
+        forgotten. ``policies`` run before the log: a refused call is never
+        recorded as made.
+        """
+        log = self.call_log()
+        interpreter = Interpreter(
+            self.tools(),
+            requester=requester,
+            mint=mint,
+            limits=limits,
+            flows=flows,
+            hook=Hooks(*policies, log),
+            readers=self.readers,
+        )
+        return interpreter, log
 
 
 def _records(specs: Iterable[ToolSpec]) -> dict[str, RecordOf]:
