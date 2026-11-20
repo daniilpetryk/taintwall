@@ -26,10 +26,14 @@ class CallRecord:
     name: str
     line: int
     effects: Effects
-    labels: tuple[Label, ...]
-    """The arguments' deep labels, positional first."""
+    labels: tuple[tuple[str, Label], ...]
+    """Each given argument's deep label, by parameter name, in call order."""
     control: Label | None
     """The pc: conditions that decided the call runs at all."""
+
+    def label_of(self, name: str) -> Label | None:
+        """The deep label of argument ``name``, or ``None`` if the call left it out."""
+        return dict(self.labels).get(name)
 
 
 class CallLog:
@@ -53,12 +57,18 @@ class CallLog:
         positional = tuple(to_python(item) for item in call.arguments.positional)
         keyword = {name: to_python(item) for name, item in call.arguments.keyword.items()}
         try:
-            spec.bind(positional, keyword)
+            bound = spec.bind(positional, keyword)
         except ArgumentError:
             raise PlanError(PlanErrorCode.BAD_ARGUMENTS, call.line, call.name) from None
-        self._records.append(
-            CallRecord(call.name, call.line, spec.effects, call.labels, call.control)
-        )
+        # bind keeps call order: positional by parameter, then keywords as given,
+        # the order of call.labels; one label per bound argument, so never ragged.
+        labels = tuple(zip(bound, call.labels, strict=True))  # pragma: no mutate - see above
+        self._records.append(CallRecord(call.name, call.line, spec.effects, labels, call.control))
+
+    @property
+    def specs(self) -> Mapping[str, ToolSpec]:
+        """The specs this log checks calls against."""
+        return self._specs
 
     @property
     def records(self) -> tuple[CallRecord, ...]:

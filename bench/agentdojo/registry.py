@@ -67,21 +67,20 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
     """The spec of one AgentDojo function."""
     schema = function.parameters.model_json_schema()
     defs = schema.get("$defs", {})
-    # Properties are named as the model validates its input: by validation
-    # alias, else by alias, else by attribute name.
-    fields = {
-        _input_name(name, field): field for name, field in function.parameters.model_fields.items()
-    }
+    properties = schema.get("properties", {})
+    # Properties come in field order, named as the model validates its input
+    # (alias, validation alias, AliasChoices, AliasPath): pair them by position.
+    fields = function.parameters.model_fields.values()
     params = tuple(
         Param(name, from_json_schema(prop, defs))
-        if fields[name].is_required()
+        if field.is_required()
         # The real default, factories included: the JSON schema omits those.
-        else Param(
-            name, from_json_schema(prop, defs), fields[name].get_default(call_default_factory=True)
-        )
-        for name, prop in schema.get("properties", {}).items()
+        else Param(name, from_json_schema(prop, defs), field.get_default(call_default_factory=True))
+        for field, (name, prop) in zip(fields, properties.items(), strict=True)
     )
-    returns = from_json_schema(TypeAdapter(function.return_type).json_schema())
+    # Results are dumped as they serialize (values.normalize), so their type
+    # is read from the serialization schema: its aliases, its computed fields.
+    returns = from_json_schema(TypeAdapter(function.return_type).json_schema(mode="serialization"))
     return ToolSpec(
         name=function.name,
         description=function.description,
@@ -90,12 +89,6 @@ def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo
         effects=EFFECTS.get(suite, {}).get(function.name, _UNKNOWN),
         readers=READERS.get(suite, Readers.USER),
     )
-
-
-def _input_name(name: str, field: Any) -> str:  # noqa: ANN401 - pydantic's FieldInfo
-    """The name a model's JSON schema gives a field in validation mode."""
-    alias = field.validation_alias
-    return alias if isinstance(alias, str) else field.alias or name
 
 
 def registry(suite: Any, environment: Any, suite_name: str) -> Registry:  # noqa: ANN401 - untyped

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, AliasPath, BaseModel, Field, computed_field
 from registry import registry, spec_for
 
 from taintwall.core.errors import PlanErrorCode
@@ -15,7 +15,7 @@ from taintwall.core.labels import Readers, Source
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
 from taintwall.core.values import Record
-from taintwall.tools import CallLog, ListOf, RecordOf, Scalar
+from taintwall.tools import CallLog, ListOf, RecordOf, Registry, Scalar
 
 SUITE = get_suite("v1.2.2", "banking")
 MINT = Mint()
@@ -87,12 +87,42 @@ def test_defaults_are_the_real_ones_factories_included() -> None:
 
 def test_parameters_are_named_by_alias() -> None:
     class Arguments(BaseModel):
-        sender: str = Field(alias="from")
+        sender: str = Field(alias="sender_iban")
+        choice: str = Field(validation_alias=AliasChoices("first", "second"))
+        path: str = Field(validation_alias=AliasPath("outer", 0))
+        both: str = Field(validation_alias=AliasChoices(AliasPath("deep", 1), "flat"))
 
     function = SimpleNamespace(
         name="aliased", description="Aliased.", parameters=Arguments, return_type=str
     )
-    assert "(from: str) -> str" in spec_for(function, "banking").signature()
+    signature = spec_for(function, "banking").signature()
+    assert "(sender_iban: str, first: str, path: str, flat: str) -> str" in signature
+
+
+def test_results_are_typed_as_they_serialize() -> None:
+    class Result(BaseModel):
+        a: int
+        b: str = Field(serialization_alias="bee")
+
+        @computed_field  # type: ignore[prop-decorator]
+        @property
+        def c(self) -> int:
+            return self.a + 1
+
+    def produce() -> Result:
+        return Result(a=1, b="x")
+
+    function = SimpleNamespace(
+        name="produce",
+        description="P.",
+        parameters=type("Empty", (BaseModel,), {}),
+        return_type=Result,
+    )
+    spec = spec_for(function, "banking")
+    tools = Registry([(spec, produce)])
+    interpreter, _ = tools.interpreter(requester=MINT.owner(), mint=MINT)
+    result = interpreter.run(parse_plan("r = produce()\nx = r.bee\ny = r.c"))
+    assert (result.variables["x"].value, result.variables["y"].value) == ("x", 2)
 
 
 def test_parameters_are_named_by_validation_alias() -> None:

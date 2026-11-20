@@ -5,15 +5,18 @@
 A tool's parameters are checked before it runs (``calls``), and the planner
 (stage 2, PR 4) reads the same types as Python signatures. Only what the
 plan language can produce is expressible: atoms, a choice of atom values,
-optional values, lists (plan tuples) and records with named fields. JSON schemas from benchmark
-tool definitions translate into these; anything else is refused, so a tool
-never advertises a parameter the checker cannot check.
+optional values, lists (plan tuples) and records with named fields. JSON
+schemas from benchmark tool definitions translate into these; any other
+keyword (a bound, a tuple, a union), and any recursive type, is refused, so a
+tool never advertises a parameter the checker cannot check.
 """
 
 import dataclasses
 import enum
 from collections.abc import Mapping
 from typing import Final
+
+from taintwall.core.interpreter import ATOMS
 
 
 class Scalar(enum.Enum):
@@ -167,37 +170,64 @@ _DEFS: Final = "#/$defs/"
 """Where pydantic puts nested models; the only references followed."""
 
 
+_ANNOTATIONS: Final = frozenset({
+    "title", "description", "default", "examples", "format", "deprecated",
+    "readOnly", "writeOnly", "$comment",
+})  # fmt: skip
+"""Keywords that only describe a value; they never constrain it."""
+
+_STRUCTURE: Final = frozenset({
+    "$ref", "$defs", "anyOf", "enum", "const", "type", "items", "properties",
+    "required", "additionalProperties",
+})  # fmt: skip
+"""Keywords the tool types express."""
+
+_NO_TYPE: Final = "a schema without a type"
+
+
 def from_json_schema(schema: Schema, defs: Mapping[str, Schema] | None = None) -> ValueType:
     """The tool type of a JSON schema: atoms, ``anyOf`` with null, arrays, objects.
 
     ``defs`` resolves ``{"$ref": "#/$defs/Name"}``, as pydantic writes nested
     models; by default the schema's own ``$defs``.
+
+    Raises:
+        UnsupportedSchemaError: naming the first keyword or reference the
+            tool types cannot express, or a recursive reference.
     """
     known = defs if defs is not None else _definitions(schema)
+    return _convert(schema, known, frozenset())
+
+
+def _convert(schema: Schema, known: Mapping[str, Schema], within: frozenset[str]) -> ValueType:
+    """``schema`` as a tool type; ``within`` are the references being resolved."""
+    unknown = sorted(set(schema) - _ANNOTATIONS - _STRUCTURE)
+    if unknown:
+        raise UnsupportedSchemaError(unknown[0])
     reference = schema.get("$ref")
     if isinstance(reference, str):
         name = reference.removeprefix(_DEFS)
-        if name == reference or name not in known:
+        if name == reference or name not in known or name in within:
             raise UnsupportedSchemaError(reference)
-        return from_json_schema(known[name], known)
+        return _convert(known[name], known, within | {name})
     if "anyOf" in schema:
-        return _any_of(schema["anyOf"], known)
+        return _any_of(schema["anyOf"], known, within)
     if "enum" in schema or "const" in schema:
         return _one_of(schema["enum"] if "enum" in schema else [schema["const"]])
-    return _typed(schema, known)
+    return _typed(schema, known, within)
 
 
-def _typed(schema: Schema, known: Mapping[str, Schema]) -> ValueType:
+def _typed(schema: Schema, known: Mapping[str, Schema], within: frozenset[str]) -> ValueType:
     """A schema by its ``type``: an atom, an array or an object."""
     kind = schema.get("type")
     if isinstance(kind, str) and kind in _JSON:
         return _JSON[kind]
     if kind == "array":
         items = schema.get("items")
-        return ListOf(from_json_schema(_mapping(items), known) if items else Scalar.ANY)
+        return ListOf(_convert(_mapping(items), known, within) if items else Scalar.ANY)
     if kind == "object":
-        return _object(schema, known)
-    raise UnsupportedSchemaError(str(kind))
+        return _object(schema, known, within)
+    raise UnsupportedSchemaError(kind if isinstance(kind, str) else _NO_TYPE)
 
 
 def _definitions(schema: Schema) -> Mapping[str, Schema]:
@@ -212,7 +242,7 @@ def _mapping(value: object) -> Schema:
     return value
 
 
-def _any_of(options: object, defs: Mapping[str, Schema]) -> ValueType:
+def _any_of(options: object, defs: Mapping[str, Schema], within: frozenset[str]) -> ValueType:
     """``anyOf`` of one type and ``null``: the only union a signature shows."""
     union = "anyOf"
     if not isinstance(options, list):
@@ -220,7 +250,7 @@ def _any_of(options: object, defs: Mapping[str, Schema]) -> ValueType:
     kinds = [option for option in options if _mapping(option).get("type") != "null"]
     if len(kinds) != 1 or len(options) != 2:  # noqa: PLR2004 - one type and null
         raise UnsupportedSchemaError(union)
-    return Maybe(from_json_schema(_mapping(kinds[0]), defs))
+    return Maybe(_convert(_mapping(kinds[0]), defs, within))
 
 
 def _one_of(values: object) -> ValueType:
@@ -228,20 +258,19 @@ def _one_of(values: object) -> ValueType:
     choice = "enum"
     if not isinstance(values, list) or not values:
         raise UnsupportedSchemaError(choice)
-    if not all(type(value) in _CHOICES for value in values):
+    if not all(type(value) in ATOMS for value in values):
         raise UnsupportedSchemaError(choice)
     return OneOf(tuple(values))
 
 
-_CHOICES: Final = (str, int, float, bool, type(None))
 _REQUIRED_KEY: Final = "required"
 
 
-def _object(schema: Schema, defs: Mapping[str, Schema]) -> ValueType:
+def _object(schema: Schema, defs: Mapping[str, Schema], within: frozenset[str]) -> ValueType:
     """A record type; a bare ``object`` (a mapping of anything) has no fields."""
     properties = _mapping(schema.get("properties", {}))
     fields = tuple(
-        (str(field), from_json_schema(_mapping(spec), defs)) for field, spec in properties.items()
+        (str(field), _convert(_mapping(spec), defs, within)) for field, spec in properties.items()
     )
     required = schema.get("required", [])
     if not isinstance(required, list):

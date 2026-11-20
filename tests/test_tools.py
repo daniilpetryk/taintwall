@@ -246,13 +246,17 @@ class TestRegistry:
 
     def test_a_call_with_effects_is_recorded_under_its_pc(self) -> None:
         tools, sent = self.make()
-        _, log = run("b = balance()\nif b > 1:\n    x = send('a', 1.0)", tools)
+        _, log = run("b = balance()\nif b > 1:\n    x = send('a', amount=1.0)", tools)
         assert sent == [{"to": "a", "amount": 1.0}]
         assert log.effects_happened  # type: ignore[attr-defined]
         record = log.records[-1]  # type: ignore[attr-defined]
         assert (record.name, record.line, record.effects.moves_funds) == ("send", 3, True)
         assert Source.tool("balance") in record.control.sources
-        assert [MINT.owner() in label.sources for label in record.labels] == [True, True]
+        assert [name for name, _ in record.labels] == ["to", "amount"]
+        to = record.label_of("to")
+        assert to is not None
+        assert MINT.owner() in to.sources
+        assert record.label_of("memo") is None
 
     def test_a_bad_argument_stops_before_the_side_effect(self) -> None:
         tools, sent = self.make()
@@ -498,16 +502,56 @@ class TestPrecision:
         assert render(OneOf(("a", 1))) == "Literal['a', 1]"
 
     @pytest.mark.parametrize(
-        "schema",
-        [{"enum": []}, {"enum": "a"}, {"enum": [[1]]}, {"type": "object", "required": "x"}],
+        ("schema", "what"),
+        [
+            ({"enum": []}, "enum"),
+            ({"enum": "a"}, "enum"),
+            ({"enum": [[1]]}, "enum"),
+            ({"type": "object", "required": "x"}, "required"),
+            ({"type": "number", "exclusiveMinimum": 0}, "exclusiveMinimum"),
+            ({"type": "array", "prefixItems": [], "maxItems": 2}, "maxItems"),
+            ({"allOf": [{"type": "string"}]}, "allOf"),
+            ({}, "a schema without a type"),
+            ({"type": ["string", "null"]}, "a schema without a type"),
+        ],
     )
-    def test_choices_and_required_must_be_well_formed(self, schema: dict[str, object]) -> None:
+    def test_refusals_name_what_was_refused(self, schema: dict[str, object], what: str) -> None:
         with pytest.raises(UnsupportedSchemaError) as err:
             from_json_schema(schema)
-        assert str(err.value) in {
-            "unsupported JSON schema: enum",
-            "unsupported JSON schema: required",
+        assert str(err.value) == f"unsupported JSON schema: {what}"
+
+    def test_annotations_are_allowed(self) -> None:
+        schema = {
+            "type": "string",
+            "title": "T",
+            "description": "D",
+            "default": "x",
+            "examples": ["x"],
+            "format": "date-time",
+            "deprecated": False,
+            "readOnly": True,
+            "writeOnly": False,
+            "$comment": "c",
         }
+        assert from_json_schema(schema) is Scalar.STR
+
+    def test_a_recursive_type_is_refused(self) -> None:
+        node = {
+            "type": "object",
+            "properties": {"children": {"type": "array", "items": {"$ref": "#/$defs/Node"}}},
+        }
+        schema = {"$ref": "#/$defs/Node", "$defs": {"Node": node}}
+        with pytest.raises(UnsupportedSchemaError) as err:
+            from_json_schema(schema)
+        assert str(err.value) == "unsupported JSON schema: #/$defs/Node"
+        twice = {
+            "type": "object",
+            "properties": {"a": {"$ref": "#/$defs/Leaf"}, "b": {"$ref": "#/$defs/Leaf"}},
+            "$defs": {"Leaf": {"type": "integer"}},
+        }
+        assert from_json_schema(twice) == RecordOf(
+            "Record", (("a", Scalar.INT), ("b", Scalar.INT)), frozenset({"a", "b"})
+        )
 
     def test_a_titled_null_still_makes_a_type_optional(self) -> None:
         schema = {"anyOf": [{"type": "string"}, {"type": "null", "title": "None"}]}

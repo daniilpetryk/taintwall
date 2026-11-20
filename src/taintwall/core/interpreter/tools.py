@@ -14,7 +14,7 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from typing import Protocol
 
-from taintwall.core.errors import PlanErrorCode
+from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter.arguments import Arguments
 from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.control import LabeledPlanError
@@ -42,6 +42,22 @@ def _call_isolated(tool: Tool, arguments: Arguments) -> object:
     with contextlib.suppress(Exception, SystemExit):
         return tool(*arguments.positional, **arguments.keyword)
     return None  # pragma: no mutate - any non-Labeled result is TOOL_FAILED
+
+
+def _hook_isolated(hook: "CallHook", call: "PendingCall") -> bool:
+    """Run the hook; ``False`` if it crashed with anything but a ``PlanError``.
+
+    A crash's text may carry attacker data the hook was inspecting, so the
+    caller fails the call as ``TOOL_FAILED`` outside any handler, as for a
+    tool (Q3); a ``PlanError`` is the hook's typed refusal and propagates.
+    """
+    try:
+        hook.before(call)
+    except PlanError:
+        raise
+    except Exception:  # noqa: BLE001 - any crash is a refused call, its text dropped
+        return False
+    return True
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -148,8 +164,9 @@ class Toolbox:
         # Read before the call: a limit hit here must stop the plan before
         # the tool's side effect, and the hook checks these labels first.
         inputs = tuple(deep_label(item, guard) for item in arguments.all)
-        if self._hook is not None:
-            self._hook.before(PendingCall(name, arguments, inputs, control, line_of(node)))
+        pending = PendingCall(name, arguments, inputs, control, line_of(node))
+        if self._hook is not None and not _hook_isolated(self._hook, pending):
+            raise LabeledPlanError(error_at(PlanErrorCode.TOOL_FAILED, node, name), stamp)
         result = _call_isolated(tool, arguments)
         if not isinstance(result, Labeled):
             # Whether a tool fails depends on its environment, not only on

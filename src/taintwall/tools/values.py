@@ -3,13 +3,14 @@
 """Values across the tool boundary: plan values to Python and back.
 
 Arguments leave the plan as plain Python (lists for tuples, dicts for
-records). Results come back labeled: every atom, list element and record
-field gets the result's label, so a field read later joins it with the
-record's (Q2). Objects with ``model_dump`` (pydantic models) become records
-keyed as their schemas name them (by alias),
-enums their values, dates their ISO text. A key that is not a record field
-name, an unknown type, or nesting past ``MAX_VALUE_DEPTH`` is refused rather
-than guessed at.
+records). Results come back in two steps: ``normalize`` makes them plain
+Python, which the registry checks against the spec's result type, and
+``label_plain`` labels every atom, list element and record field with the
+result's label, so a field read later joins it with the record's (Q2).
+Objects with ``model_dump`` (pydantic models) become dicts keyed as their
+serialization schemas name them (by alias), enums their values, dates their
+ISO text. A key that is not a record field name, an unknown type, or nesting
+past ``MAX_VALUE_DEPTH`` is refused rather than guessed at.
 """
 
 import datetime as dt
@@ -17,10 +18,9 @@ import enum
 from collections.abc import Mapping, Sequence
 from typing import Final
 
+from taintwall.core.interpreter import ATOMS
 from taintwall.core.labels import MAX_VALUE_DEPTH, Label, Labeled
 from taintwall.core.values import Record, is_field_name
-
-_ATOMS: Final = (str, int, float, bool, type(None))
 
 
 class ConversionError(TypeError):
@@ -47,21 +47,39 @@ def to_python(value: object) -> object:
 
 def to_labeled(value: object, label: Label) -> Labeled[object]:
     """A tool result as a plan value, every part of it labeled ``label``."""
-    return _labeled(value, label, 0)
+    return label_plain(normalize(value), label)
 
 
-def _labeled(value: object, label: Label, depth: int) -> Labeled[object]:
+def normalize(value: object) -> object:
+    """A tool result as plain Python: atoms, lists, and dicts keyed by field names.
+
+    Raises:
+        ConversionError: a type, key or depth a plan value cannot have.
+    """
+    return _normalize(value, 0)
+
+
+def _normalize(value: object, depth: int) -> object:
     if depth > MAX_VALUE_DEPTH:
         raise ConversionError(_TOO_DEEP)
     value = _simple(value)
-    if type(value) in _ATOMS:
-        return Labeled(value, label)
+    if type(value) in ATOMS:
+        return value
     if isinstance(value, Mapping):
-        fields = {_field_name(key): _labeled(item, label, depth + 1) for key, item in value.items()}
-        return Labeled(Record.of(fields), label)
+        return {_field_name(key): _normalize(item, depth + 1) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        return Labeled(tuple(_labeled(item, label, depth + 1) for item in value), label)
+        return [_normalize(item, depth + 1) for item in value]
     raise ConversionError(type(value).__name__)
+
+
+def label_plain(value: object, label: Label) -> Labeled[object]:
+    """A ``normalize``d value as a plan value, every part of it labeled ``label``."""
+    if type(value) is dict:
+        fields = {name: label_plain(item, label) for name, item in value.items()}
+        return Labeled(Record.of(fields), label)
+    if type(value) is list:
+        return Labeled(tuple(label_plain(item, label) for item in value), label)
+    return Labeled(value, label)
 
 
 def _simple(value: object) -> object:

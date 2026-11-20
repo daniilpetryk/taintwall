@@ -11,14 +11,30 @@ effect, Q3) and later for policies; ``readers`` say who may see its results
 """
 
 import dataclasses
+import enum
+import keyword
 from collections.abc import Mapping
 from typing import Final
 
+from taintwall.core.interpreter import ATOMS
 from taintwall.core.labels import Readers
 from taintwall.tools.schema import ValueType, accepts, render
 
-_REQUIRED: Final = object()
-"""Marker: a parameter without a default."""
+
+class _Marker(enum.Enum):
+    REQUIRED = "required"
+
+
+_REQUIRED: Final = _Marker.REQUIRED
+"""Marker: a parameter without a default. An enum member, so a copied or
+unpickled ``Param`` is still the same marker (``object()`` would not be)."""
+
+
+class InvalidParamError(ValueError):
+    """A parameter name a plan cannot pass by keyword, or one given twice."""
+
+    def __init__(self, tool: str, name: str) -> None:
+        super().__init__(f"{tool} has an invalid or repeated parameter: {name!r}")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -77,6 +93,20 @@ class ToolSpec:
     readers: Readers = Readers.USER
     """Private by default (Q9); results anyone may see opt into ``PUBLIC``."""
 
+    def __post_init__(self) -> None:
+        """Every parameter name must be one a plan can write as a keyword.
+
+        Raises:
+            InvalidParamError: a name that is not an identifier, a Python
+                keyword (``from``), or repeated.
+        """
+        seen: set[str] = set()
+        for param in self.params:
+            name = param.name
+            if not name.isidentifier() or keyword.iskeyword(name) or name in seen:
+                raise InvalidParamError(self.name, name)
+            seen.add(name)
+
     def bind(
         self, positional: tuple[object, ...], keyword: Mapping[str, object]
     ) -> dict[str, object]:
@@ -124,13 +154,10 @@ def _param(param: Param) -> str:
 
 def _plain(value: object) -> bool:
     """Whether ``value`` is atoms, lists and string-keyed dicts only: a plan literal."""
-    if type(value) in _ATOMS:
+    if type(value) in ATOMS:
         return True
     if type(value) is list:
         return all(_plain(item) for item in value)
     if type(value) is dict:
         return all(type(key) is str and _plain(item) for key, item in value.items())
     return False
-
-
-_ATOMS: Final = (str, int, float, bool, type(None))

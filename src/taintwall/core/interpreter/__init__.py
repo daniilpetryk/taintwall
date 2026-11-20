@@ -24,6 +24,7 @@ from taintwall.core.interpreter.builtins import BUILTINS
 from taintwall.core.interpreter.control import ImplicitFlows, LabeledPlanError
 from taintwall.core.interpreter.evaluator import RunResult
 from taintwall.core.interpreter.limits import InvalidLimitError, Limits
+from taintwall.core.interpreter.operators import ATOMS
 from taintwall.core.interpreter.runtime import (
     Interpreter,
     InterpreterOptions,
@@ -41,6 +42,7 @@ from taintwall.core.interpreter.tools import (
 from taintwall.core.interpreter.trace import EventKind, TraceEvent
 
 __all__ = [
+    "ATOMS",
     "BUILTINS",
     "CallHook",
     "EventKind",

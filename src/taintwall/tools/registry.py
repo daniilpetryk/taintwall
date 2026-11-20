@@ -11,7 +11,7 @@ Implementations are ordinary Python callables taking keyword arguments, so a
 benchmark's functions or an MCP client can stand behind a spec unchanged.
 """
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Unpack
 
@@ -20,7 +20,7 @@ from taintwall.core.labels import Label, Labeled, Readers, Source
 from taintwall.tools.calls import CallLog
 from taintwall.tools.schema import RecordOf, accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
-from taintwall.tools.values import to_labeled, to_python
+from taintwall.tools.values import label_plain, normalize, to_python
 
 type Implementation = Callable[..., object]
 """What runs a tool: keyword arguments of plain Python values, any result."""
@@ -38,6 +38,13 @@ class DuplicateToolError(ValueError):
 
     def __init__(self, name: str) -> None:
         super().__init__(f"duplicate tool: {name}")
+
+
+class ForeignLogError(ValueError):
+    """A call log checks other specs than this registry's."""
+
+    def __init__(self) -> None:
+        super().__init__("the call log belongs to another registry")
 
 
 class RecordClashError(ValueError):
@@ -87,16 +94,28 @@ class Registry:
         return "\n\n".join((*classes, *signatures))
 
     def interpreter(
-        self, *, policies: Iterable[CallHook] = (), **options: Unpack[InterpreterOptions]
+        self,
+        *,
+        policies: Sequence[CallHook] = (),
+        log: CallLog | None = None,
+        **options: Unpack[InterpreterOptions],
     ) -> tuple[Interpreter, CallLog]:
         """An interpreter over these tools, wired as they must be, and its call log.
 
         Tools, their readers and the call log go in together, so none can be
         forgotten. ``policies`` run before the log: a refused call is never
-        recorded as made. ``options`` are the interpreter's own (requester,
-        mint, limits, flows).
+        recorded as made. Pass the ``log`` of an earlier attempt so its
+        effects carry over: the replanning loop must not retry after a side
+        effect of any attempt (Q3). ``options`` are the interpreter's own
+        (requester, mint, limits, flows).
+
+        Raises:
+            ForeignLogError: ``log`` checks another registry's specs.
         """
-        log = CallLog(self._specs)
+        if log is None:
+            log = CallLog(self._specs)
+        elif log.specs != self._specs:
+            raise ForeignLogError
         interpreter = Interpreter(
             self._tools(), hook=Hooks(*policies, log), readers=self.readers, **options
         )
@@ -126,10 +145,10 @@ def _wrap(spec: ToolSpec, run: Implementation) -> Tool:
             tuple(to_python(item) for item in positional),
             {name: to_python(item) for name, item in keyword.items()},
         )
-        result = to_labeled(run(**arguments), label)
+        result = normalize(run(**arguments))
         # The planner was promised spec.returns; anything else is a failed call.
-        if not accepts(spec.returns, to_python(result)):
+        if not accepts(spec.returns, result):
             raise ResultTypeError(spec.name)
-        return result
+        return label_plain(result, label)
 
     return tool
