@@ -14,12 +14,14 @@ from taintwall.tools.calls import CallLog, CallRecord
 from taintwall.tools.registry import (
     DuplicateToolError,
     Implementation,
+    RecordClashError,
     Registry,
     ResultTypeError,
 )
 from taintwall.tools.schema import (
     ListOf,
     Maybe,
+    OneOf,
     RecordOf,
     Scalar,
     UnsupportedSchemaError,
@@ -44,7 +46,9 @@ __all__ = [
     "Implementation",
     "ListOf",
     "Maybe",
+    "OneOf",
     "Param",
+    "RecordClashError",
     "RecordOf",
     "Registry",
     "ResultTypeError",

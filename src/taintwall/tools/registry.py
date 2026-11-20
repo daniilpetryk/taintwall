@@ -11,11 +11,12 @@ benchmark's functions or an MCP client can stand behind a spec unchanged.
 """
 
 from collections.abc import Callable, Iterable, Mapping
+from types import MappingProxyType
 
 from taintwall.core.interpreter import Tool
-from taintwall.core.labels import Label, Labeled, Source
+from taintwall.core.labels import Label, Labeled, Readers, Source
 from taintwall.tools.calls import CallLog
-from taintwall.tools.schema import accepts, records_in, render_record
+from taintwall.tools.schema import RecordOf, accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
 from taintwall.tools.values import to_labeled, to_python
 
@@ -37,20 +38,40 @@ class DuplicateToolError(ValueError):
         super().__init__(f"duplicate tool: {name}")
 
 
+class RecordClashError(ValueError):
+    """Two different record types share a name: a planner could not tell them apart."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"two record types named {name}")
+
+
 class Registry:
     """Tools a planner may use: each spec with what implements it."""
 
     def __init__(self, entries: Iterable[tuple[ToolSpec, Implementation]]) -> None:
+        """Collect the tools.
+
+        Raises:
+            DuplicateToolError: two tools share a name.
+            RecordClashError: two different record types share a name.
+        """
         self._entries: dict[str, tuple[ToolSpec, Implementation]] = {}
         for spec, implementation in entries:
             if spec.name in self._entries:
                 raise DuplicateToolError(spec.name)
             self._entries[spec.name] = (spec, implementation)
+        self._specs = MappingProxyType({name: spec for name, (spec, _) in self._entries.items()})
+        self._records = _records(self._specs.values())
 
     @property
     def specs(self) -> Mapping[str, ToolSpec]:
         """Every tool's spec by name, in the order given."""
-        return {name: spec for name, (spec, _) in self._entries.items()}
+        return self._specs
+
+    @property
+    def readers(self) -> Mapping[str, Readers]:
+        """Who may see each tool's results and failures: the interpreter's ``readers``."""
+        return {name: spec.readers for name, spec in self._specs.items()}
 
     def tools(self) -> Mapping[str, Tool]:
         """One interpreter tool per spec."""
@@ -58,19 +79,27 @@ class Registry:
 
     def describe(self) -> str:
         """Every record type once, then every tool's signature: what a planner reads."""
-        records = {
-            record.name: record
-            for spec in self.specs.values()
-            for kind in (*(param.type for param in spec.params), spec.returns)
-            for record in records_in(kind)
-        }
-        classes = (render_record(record) for record in records.values())
-        signatures = (spec.signature() for spec in self.specs.values())
+        classes = (render_record(record) for record in self._records.values())
+        signatures = (spec.signature() for spec in self._specs.values())
         return "\n\n".join((*classes, *signatures))
 
     def call_log(self) -> CallLog:
         """A fresh hook that checks and records the calls of one run."""
         return CallLog(self.specs)
+
+
+def _records(specs: Iterable[ToolSpec]) -> dict[str, RecordOf]:
+    """Every record type of these specs by name, inner ones first.
+
+    Raises:
+        RecordClashError: two different record types share a name.
+    """
+    records: dict[str, RecordOf] = {}
+    kinds = (kind for spec in specs for kind in (*(p.type for p in spec.params), spec.returns))
+    for record in (record for kind in kinds for record in records_in(kind)):
+        if records.setdefault(record.name, record) != record:
+            raise RecordClashError(record.name)
+    return records
 
 
 def _wrap(spec: ToolSpec, run: Implementation) -> Tool:

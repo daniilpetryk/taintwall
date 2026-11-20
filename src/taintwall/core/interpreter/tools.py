@@ -22,7 +22,7 @@ from taintwall.core.interpreter.limits import Guard
 from taintwall.core.interpreter.location import error_at, line_of
 from taintwall.core.interpreter.trace import Result
 from taintwall.core.interpreter.walk import deep_label
-from taintwall.core.labels import Label, Labeled, Source, join_all
+from taintwall.core.labels import Label, Labeled, Readers, Source, join_all
 
 type Tool = Callable[..., Labeled[object]]
 """A callable the plan can invoke by name.
@@ -99,12 +99,23 @@ class ToolNameClashError(ValueError):
 class Toolbox:
     """The tools of one interpreter, each with the source stamped on its results."""
 
-    def __init__(self, tools: Mapping[str, Tool], hook: CallHook | None = None) -> None:
+    def __init__(
+        self,
+        tools: Mapping[str, Tool],
+        hook: CallHook | None = None,
+        readers: Mapping[str, Readers] | None = None,
+    ) -> None:
         clashes = set(tools) & BUILTINS
         if clashes:
             raise ToolNameClashError(clashes)
-        # Validates tool names as sources up front (InvalidSourceError).
-        self._tools = {name: (tool, Label.of(Source.tool(name))) for name, tool in tools.items()}
+        given = readers or {}
+        # Validates tool names as sources and readers up front (InvalidSourceError,
+        # InvalidReadersError). The stamp labels failures too: whether a private
+        # tool failed is as private as its results.
+        self._tools = {
+            name: (tool, Label.of(Source.tool(name), readers=given.get(name, Readers.PUBLIC)))
+            for name, tool in tools.items()
+        }
         self._hook = hook
 
     def __contains__(self, name: object) -> bool:

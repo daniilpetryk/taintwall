@@ -30,7 +30,9 @@ from taintwall.tools import (
     Effects,
     ListOf,
     Maybe,
+    OneOf,
     Param,
+    RecordClashError,
     RecordOf,
     Registry,
     ResultTypeError,
@@ -40,13 +42,14 @@ from taintwall.tools import (
     accepts,
     from_json_schema,
     render,
+    render_record,
     to_labeled,
     to_python,
 )
 
 MINT = Mint()
 LABEL = Label.of(Source.tool("t"))
-POINT = RecordOf("Point", (("x", Scalar.INT), ("tag", Maybe(Scalar.STR))))
+POINT = RecordOf("Point", (("x", Scalar.INT), ("tag", Maybe(Scalar.STR))), frozenset({"tag"}))
 
 
 class TestSchema:
@@ -67,7 +70,8 @@ class TestSchema:
             (ListOf(Scalar.INT), [1, "2"], False),
             (ListOf(Scalar.INT), (1,), False),
             (POINT, {"x": 1, "tag": None}, True),
-            (POINT, {"x": 1}, False),
+            (POINT, {"x": 1}, True),
+            (POINT, {"tag": None}, False),
             (POINT, {"x": "1", "tag": None}, False),
             (POINT, [1], False),
         ],
@@ -94,6 +98,7 @@ class TestSchema:
                         "x": {"type": "integer"},
                         "tag": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                     },
+                    "required": ["x"],
                 }
             },
         }
@@ -209,7 +214,9 @@ class TestValues:
 
 def run(plan: str, tools: Registry) -> tuple[RunResult, object]:
     log = tools.call_log()
-    interpreter = Interpreter(tools.tools(), requester=MINT.owner(), mint=MINT, hook=log)
+    interpreter = Interpreter(
+        tools.tools(), requester=MINT.owner(), mint=MINT, hook=log, readers=tools.readers
+    )
     return interpreter.run(parse_plan(plan)), log
 
 
@@ -240,6 +247,7 @@ class TestRegistry:
         record = log.records[-1]  # type: ignore[attr-defined]
         assert (record.name, record.line, record.effects.moves_funds) == ("send", 3, True)
         assert Source.tool("balance") in record.control.sources
+        assert [MINT.owner() in label.sources for label in record.labels] == [True, True]
 
     def test_a_bad_argument_stops_before_the_side_effect(self) -> None:
         tools, sent = self.make()
@@ -307,11 +315,13 @@ class TestEdges:
                         "maybe": {"anyOf": [{"$ref": "#/$defs/Inner"}, {"type": "null"}]},
                         "many": {"type": "array", "items": {"$ref": "#/$defs/Inner"}},
                     },
+                    "required": ["one", "maybe", "many"],
                 },
                 "Inner": {
                     "title": "Inner",
                     "type": "object",
                     "properties": {"v": {"type": "integer"}},
+                    "required": ["v"],
                 },
             },
         }
@@ -470,3 +480,69 @@ class TestHooks:
                 tools, requester=MINT.owner(), mint=MINT, hook=Hooks(Refuse(), Record())
             ).run(parse_plan("x = t()"))
         assert seen == ["record t", "refuse"]
+
+
+class TestPrecision:
+    @pytest.mark.parametrize(
+        ("value", "ok"),
+        [("a", True), ("b", True), ("c", False), (1, True), (True, False), (None, False)],
+    )
+    def test_a_choice_accepts_its_values_by_type(self, value: object, *, ok: bool) -> None:
+        assert accepts(OneOf(("a", "b", 1)), value) is ok
+
+    def test_enums_and_constants_become_choices(self) -> None:
+        assert from_json_schema({"enum": ["a", "b"], "type": "string"}) == OneOf(("a", "b"))
+        assert from_json_schema({"const": 3}) == OneOf((3,))
+        assert render(OneOf(("a", 1))) == "Literal['a', 1]"
+
+    @pytest.mark.parametrize(
+        "schema",
+        [{"enum": []}, {"enum": "a"}, {"enum": [[1]]}, {"type": "object", "required": "x"}],
+    )
+    def test_choices_and_required_must_be_well_formed(self, schema: dict[str, object]) -> None:
+        with pytest.raises(UnsupportedSchemaError) as err:
+            from_json_schema(schema)
+        assert str(err.value) in {
+            "unsupported JSON schema: enum",
+            "unsupported JSON schema: required",
+        }
+
+    def test_a_titled_null_still_makes_a_type_optional(self) -> None:
+        schema = {"anyOf": [{"type": "string"}, {"type": "null", "title": "None"}]}
+        assert from_json_schema(schema) == Maybe(Scalar.STR)
+
+    def test_optional_fields_show_with_a_default(self) -> None:
+        assert render_record(POINT) == "class Point:\n    x: int\n    tag: str | None = ..."
+
+    def test_two_records_with_one_name_are_refused(self) -> None:
+        one = ToolSpec("one", "One.", (), RecordOf("R", (("a", Scalar.INT),)), READ_ONLY)
+        two = ToolSpec("two", "Two.", (), RecordOf("R", (("b", Scalar.INT),)), READ_ONLY)
+        same = ToolSpec("same", "Same.", (), RecordOf("R", (("a", Scalar.INT),)), READ_ONLY)
+        Registry([(one, print), (same, print)])
+        with pytest.raises(RecordClashError) as err:
+            Registry([(one, print), (two, print)])
+        assert str(err.value) == "two record types named R"
+
+    def test_the_registry_gives_each_tools_readers(self) -> None:
+        public = ToolSpec("p", "P.", (), Scalar.INT, READ_ONLY, Readers.PUBLIC)
+        private = ToolSpec("q", "Q.", (), Scalar.INT, READ_ONLY)
+        tools = Registry([(public, print), (private, print)])
+        assert tools.readers == {"p": Readers.PUBLIC, "q": Readers.USER}
+        assert tools.specs == {"p": public, "q": private}
+
+    def test_a_private_tools_failure_is_private(self) -> None:
+        def broken() -> int:
+            raise RuntimeError
+
+        spec = ToolSpec("broken", "Broken.", (), Scalar.INT, READ_ONLY)
+        with pytest.raises(LabeledPlanError) as err:
+            run("x = broken()", Registry([(spec, broken)]))
+        assert err.value.code is PlanErrorCode.TOOL_FAILED
+        assert err.value.label.readers is Readers.USER
+
+    def test_tools_not_named_in_readers_are_public(self) -> None:
+        tools: dict[str, Tool] = {"t": lambda: (_ for _ in ()).throw(RuntimeError())}
+        interpreter = Interpreter(tools, requester=MINT.owner(), mint=MINT)
+        with pytest.raises(LabeledPlanError) as err:
+            interpreter.run(parse_plan("x = t()"))
+        assert err.value.label.readers is Readers.PUBLIC

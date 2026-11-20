@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """AgentDojo banking functions as taintwall tools, run by the interpreter offline."""
 
+from types import SimpleNamespace
+
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
+from pydantic import BaseModel, Field
 from registry import registry, spec_for
 
 from taintwall.core.errors import PlanErrorCode
@@ -21,13 +24,18 @@ MINT = Mint()
 def run(plan: str) -> tuple[RunResult, CallLog]:
     tools = registry(SUITE, SUITE.load_and_inject_default_environment({}), "banking")
     log = tools.call_log()
-    interpreter = Interpreter(tools.tools(), requester=MINT.owner(), mint=MINT, hook=log)
+    interpreter = Interpreter(
+        tools.tools(), requester=MINT.owner(), mint=MINT, hook=log, readers=tools.readers
+    )
     return interpreter.run(parse_plan(plan)), log
 
 
 def test_every_banking_function_has_a_spec() -> None:
     specs = {function.name: spec_for(function, "banking") for function in SUITE.tools}
     assert specs["send_money"].effects.moves_funds
+    assert specs["send_money"].effects.outward
+    assert specs["schedule_transaction"].effects.outward
+    assert not specs["update_password"].effects.outward
     assert specs["get_balance"].effects.read_only
     assert specs["get_balance"].returns is Scalar.FLOAT
     transactions = specs["get_most_recent_transactions"]
@@ -65,3 +73,15 @@ def test_a_function_error_is_a_tool_failure_without_its_text() -> None:
     expected = (PlanErrorCode.TOOL_FAILED, "update_scheduled_transaction")
     assert (err.value.code, err.value.detail) == expected
     assert "999999" not in str(err.value)
+
+
+def test_defaults_are_the_real_ones_factories_included() -> None:
+    class Arguments(BaseModel):
+        tags: list[str] = Field(default_factory=lambda: ["rent"])
+        n: int = 3
+
+    function = SimpleNamespace(
+        name="tagged", description="Tagged.", parameters=Arguments, return_type=int
+    )
+    signature = spec_for(function, "banking").signature()
+    assert "(tags: list[str] = ['rent'], n: int = 3) -> int" in signature

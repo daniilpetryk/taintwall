@@ -90,11 +90,11 @@ class ToolSpec:
         """
         if len(positional) > len(self.params):
             raise ArgumentError(self.name)
-        names = (param.name for param in self.params)
+        names = [param.name for param in self.params]
         # Never more values than names (checked above); strict would only fail on fewer.
         bound = dict(zip(names, positional, strict=False))  # pragma: no mutate - see above
         for name, value in keyword.items():
-            if name in bound or name not in {param.name for param in self.params}:
+            if name in bound or name not in names:
                 raise ArgumentError(self.name)
             bound[name] = value
         for param in self.params:

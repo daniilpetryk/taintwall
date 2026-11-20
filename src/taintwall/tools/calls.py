@@ -26,6 +26,8 @@ class CallRecord:
     name: str
     line: int
     effects: Effects
+    labels: tuple[Label, ...]
+    """The arguments' deep labels, positional first."""
     control: Label | None
     """The pc: conditions that decided the call runs at all."""
 
@@ -54,7 +56,9 @@ class CallLog:
             spec.bind(positional, keyword)
         except ArgumentError:
             raise PlanError(PlanErrorCode.BAD_ARGUMENTS, call.line, call.name) from None
-        self._records.append(CallRecord(call.name, call.line, spec.effects, call.control))
+        self._records.append(
+            CallRecord(call.name, call.line, spec.effects, call.labels, call.control)
+        )
 
     @property
     def records(self) -> tuple[CallRecord, ...]:

@@ -28,7 +28,8 @@ from taintwall.tools import (
     from_json_schema,
 )
 
-_FUNDS: Final = Effects(moves_funds=True)
+# A transfer is outward too: its subject reaches a recipient the plan names.
+_FUNDS: Final = Effects(moves_funds=True, outward=True)
 _WRITES: Final = Effects(writes=True)
 _READS: Final = Effects()
 
@@ -63,11 +64,15 @@ class ToolFailedError(RuntimeError):
 def spec_for(function: Any, suite: str) -> ToolSpec:  # noqa: ANN401 - AgentDojo's Function is untyped
     """The spec of one AgentDojo function."""
     schema = function.parameters.model_json_schema()
-    required = set(schema.get("required", []))
+    defs = schema.get("$defs", {})
+    fields = function.parameters.model_fields
     params = tuple(
-        Param(name, from_json_schema(prop, schema.get("$defs", {})))
-        if name in required
-        else Param(name, from_json_schema(prop, schema.get("$defs", {})), prop.get("default"))
+        Param(name, from_json_schema(prop, defs))
+        if fields[name].is_required()
+        # The real default, factories included: the JSON schema omits those.
+        else Param(
+            name, from_json_schema(prop, defs), fields[name].get_default(call_default_factory=True)
+        )
         for name, prop in schema.get("properties", {}).items()
     )
     returns = from_json_schema(TypeAdapter(function.return_type).json_schema())
