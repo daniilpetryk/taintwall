@@ -17,7 +17,9 @@ from typing import Unpack
 
 from taintwall.core.interpreter import CallHook, Hooks, Interpreter, InterpreterOptions, Tool
 from taintwall.core.labels import Label, Labeled, Readers, Source
+from taintwall.core.plan import Plan
 from taintwall.tools.calls import CallLog
+from taintwall.tools.check import PlanCheck, check_plan
 from taintwall.tools.schema import RecordOf, accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
 from taintwall.tools.values import label_plain, normalize, to_python
@@ -92,6 +94,10 @@ class Registry:
         classes = (render_record(record) for record in self._records.values())
         signatures = (spec.signature() for spec in self._specs.values())
         return "\n\n".join((*classes, *signatures))
+
+    def check(self, plan: Plan) -> PlanCheck:
+        """What ``plan`` would surely get wrong with these tools, and the calls it makes."""
+        return check_plan(plan, self._specs)
 
     def interpreter(
         self,

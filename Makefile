@@ -8,7 +8,7 @@ HADOLINT  := $(call tool_image,hadolint)
 GRYPE     := $(call tool_image,grype)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline bench-plans bench-census bench-craibench bench-test audit hooks \
+.PHONY: help setup fmt lint test check cov diff-cov mutate bench-baseline bench-plans bench-census bench-check bench-craibench bench-test audit hooks \
         py-lint py-test go-lint go-test lint-docker \
         docker-build docker-check scan scan-images clean
 
@@ -56,6 +56,10 @@ bench-plans: ## Stage 2 study: plans planners write for banking (spends credit; 
 
 bench-census: ## Constructs used and rejection reasons of collected plans (no model calls; RUN)
 	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python plan_census.py \
+		../results/agentdojo/plans/$(or $(RUN),natural)
+
+bench-check: ## Static checker over collected plans (no model calls; RUN)
+	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python plan_check.py \
 		../results/agentdojo/plans/$(or $(RUN),natural)
 
 bench-craibench: ## CrAIBench crypto suites (spends credit; MODE, SAMPLE, MEMORY=1, MAX_COST)

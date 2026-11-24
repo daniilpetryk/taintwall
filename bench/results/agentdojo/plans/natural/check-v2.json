@@ -1,0 +1,37 @@
+{
+  "language": 2,
+  "models": {
+    "anthropic/claude-haiku-5.5": {
+      "plans": 16,
+      "accepted": 3,
+      "checked": 3,
+      "codes": {}
+    },
+    "deepseek/deepseek-v3.2": {
+      "plans": 16,
+      "accepted": 4,
+      "checked": 4,
+      "codes": {}
+    },
+    "google/gemini-3.1-flash-lite": {
+      "plans": 16,
+      "accepted": 12,
+      "checked": 12,
+      "codes": {}
+    },
+    "meta-llama/llama-4-scout": {
+      "plans": 16,
+      "accepted": 6,
+      "checked": 5,
+      "codes": {
+        "unknown_name": 1
+      }
+    },
+    "openai/gpt-5-mini": {
+      "plans": 16,
+      "accepted": 0,
+      "checked": 0,
+      "codes": {}
+    }
+  }
+}
