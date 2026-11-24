@@ -92,8 +92,12 @@ def urllib_transport(url: str, body: bytes, headers: Mapping[str, str]) -> Answe
 
 
 def _seconds(header: str | None) -> float | None:
-    """A ``Retry-After`` given in seconds; ``None`` for none or an HTTP date."""
-    return float(header) if header is not None and header.strip().isdigit() else None
+    """A ``Retry-After`` given in seconds; ``None`` for none, an HTTP date or anything else.
+
+    Decimal digits only: ``str.isdigit`` also takes ``²``, which ``float``
+    refuses. A header is Latin-1, whose only decimal digits are ASCII ones.
+    """
+    return float(header) if header is not None and header.strip().isdecimal() else None
 
 
 class OpenRouterClient:

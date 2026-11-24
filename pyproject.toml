@@ -272,10 +272,10 @@ containers = ["taintwall.llm"]
 layers = ["openrouter | cache | budget", "conform | client"]
 
 [[tool.importlinter.contracts]]
-name = "Planner layers: loop > prompt, answer"
+name = "Planner layers: loop > prompt, answer, outcome"
 type = "layers"
 containers = ["taintwall.planner"]
-layers = ["loop", "prompt | answer"]
+layers = ["loop", "prompt | answer | outcome"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"

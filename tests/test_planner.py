@@ -241,15 +241,52 @@ class TestLoop:
                     raise PlanError(PlanErrorCode.TOOL_FAILED, call.line, call.name)
 
         sent: list[float] = []
-        planner = Planner(
-            FakePlanner("ok = send(1.0)"),
-            MODEL,
-            lambda: tools(sent),
-            replan=Replan(0, 0),
-            policies=[NoSend()],
-        )
+        model = FakePlanner("ok = send(1.0)", GOOD)
+        planner = Planner(model, MODEL, lambda: tools(sent), policies=lambda: [NoSend()])
         outcome = planner.run("Pay.", requester=MINT.owner(), mint=MINT)
-        assert (outcome.failure, sent, outcome.effects_happened) == ("runtime", [], False)
+        assert (outcome.failure, sent, outcome.effects_happened) == ("policy", [], False)
+        assert len(model.requests) == 1  # no retry: it could look for another way
+        (attempt,) = outcome.attempts
+        assert (attempt.phase, attempt.errors[0].code) == ("run", PlanErrorCode.TOOL_FAILED)
+
+    def test_a_policy_that_crashes_also_ends_the_run(self) -> None:
+        class Crashes:
+            def before(self, call: PendingCall) -> None:
+                raise RuntimeError(call.name)
+
+        planner = Planner(FakePlanner(GOOD, GOOD), MODEL, tools, policies=lambda: [Crashes()])
+        outcome = planner.run("Hi.", requester=MINT.owner(), mint=MINT)
+        assert outcome.failure == "policy"
+
+    def test_a_tool_failure_is_not_a_refusal(self) -> None:
+        class Allows:
+            def before(self, call: PendingCall) -> None:
+                pass
+
+        model = FakePlanner("x = broken()", GOOD)
+        planner = Planner(model, MODEL, tools, policies=lambda: [Allows()])
+        assert planner.run("Hi.", requester=MINT.owner(), mint=MINT).answered
+
+    def test_policies_are_built_afresh_for_each_request(self) -> None:
+        class Once:
+            def __init__(self) -> None:
+                self.seen = 0
+
+            def before(self, call: PendingCall) -> None:
+                self.seen += 1
+                if self.seen > 2:  # balance and answer
+                    raise PlanError(PlanErrorCode.TOOL_FAILED, call.line, call.name)
+
+        built: list[Once] = []
+
+        def policies() -> list[Once]:
+            built.append(Once())
+            return built[-1:]
+
+        planner = Planner(FakePlanner(GOOD, GOOD), MODEL, tools, policies=policies)
+        for _ in range(2):
+            assert planner.run("Hi.", requester=MINT.owner(), mint=MINT).answered
+        assert [once.seen for once in built] == [2, 2]
 
 
 def test_attempts_and_retries_carry_the_program_and_the_request() -> None:

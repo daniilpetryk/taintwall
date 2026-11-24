@@ -79,7 +79,7 @@ taintwall.core.interpreter
 
 taintwall.planner
   loop                            Planner: plan, check, run, retry within Replan (Q3)
-  prompt | answer                 what the planner reads | the answer tool
+  prompt | answer | outcome       what the planner reads | the answer tool | how it ended
 
 taintwall.reader
   query                           query_reader: the Q-LLM as a tool, a fixed schema out

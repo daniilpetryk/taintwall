@@ -5,20 +5,13 @@
 Modules, from the entry point down (``pyproject.toml`` enforces the order):
 
 * ``loop``: ``Planner``: plan, check, run, retry within ``Replan`` (Q3);
-* ``prompt | answer``: what the planner reads | the ``answer`` tool.
+* ``prompt | answer | outcome``: what the planner reads | the ``answer``
+  tool | how a request ended.
 """
 
 from taintwall.planner.answer import ReservedToolError, answer_tool
-from taintwall.planner.loop import (
-    Answer,
-    Attempt,
-    Failure,
-    Outcome,
-    Phase,
-    Planner,
-    PlannerModel,
-    Replan,
-)
+from taintwall.planner.loop import Planner, PlannerModel, Replan
+from taintwall.planner.outcome import Answer, Attempt, Failure, Outcome, Phase
 from taintwall.planner.prompt import PLAN_SCHEMA, SYSTEM, rules
 
 __all__ = [

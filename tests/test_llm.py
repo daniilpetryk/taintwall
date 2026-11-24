@@ -257,7 +257,13 @@ def test_the_standard_library_transport_posts_and_reads(server: str) -> None:
     assert _Handler.seen == [("/v1", b"body", "1")]
     _Handler.status = 429
     assert openrouter.urllib_transport(server, b"body", {"X-Test": "2"}) == (429, b"", None)
-    for header, seconds in [("20", 20.0), (" 7 ", 7.0), ("Wed, 21 Oct 2026 07:28:00 GMT", None)]:
+    for header, seconds in [
+        ("20", 20.0),
+        (" 7 ", 7.0),
+        ("Wed, 21 Oct 2026 07:28:00 GMT", None),
+        ("\u00b2", None),
+        ("-1", None),
+    ]:
         _Handler.retry_after = header
         assert openrouter.urllib_transport(server, b"b", {"X-Test": "3"}) == (429, b"", seconds)
     _Handler.retry_after = None
@@ -562,6 +568,36 @@ class TestBudget:
         budget.structured(REQUEST)
         budget.structured(REQUEST)
         assert (budget.calls, budget.cost) == (0, 0.0)
+
+    def test_a_failed_call_counts_with_what_it_was_billed(self) -> None:
+        class Failing:
+            def __init__(self, error: LLMError) -> None:
+                self.error = error
+
+            def structured(self, request: StructuredRequest) -> StructuredReply:  # noqa: ARG002 - the protocol's
+                raise self.error
+
+        cut = TruncatedError("m/x", Usage(10, 8000, 0, 0.6))
+        budget = BudgetedClient(Failing(cut), max_calls=5, max_cost=1.0)
+        with pytest.raises(TruncatedError) as err:
+            budget.structured(REQUEST)
+        assert err.value is cut
+        assert err.value.__context__ is None
+        assert budget.calls == 1
+        assert budget.cost == pytest.approx(0.6)
+        with pytest.raises(TruncatedError):
+            budget.structured(REQUEST)
+        with pytest.raises(BudgetExceededError):
+            budget.structured(REQUEST)
+        unreachable = BudgetedClient(Failing(ProviderError("m/x", None)), max_calls=1, max_cost=1.0)
+        with pytest.raises(ProviderError):
+            unreachable.structured(REQUEST)
+        assert (unreachable.calls, unreachable.cost) == (1, 0.0)
+        for refused in (UnsupportedSchemaError("m/x"), BudgetExceededError("m/x")):
+            never = BudgetedClient(Failing(refused), max_calls=1, max_cost=1.0)
+            with pytest.raises(type(refused)):
+                never.structured(REQUEST)
+            assert (never.calls, never.cost) == (0, 0.0)
 
 
 class Flaky:

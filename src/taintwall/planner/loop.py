@@ -9,6 +9,8 @@ reads no data, so it is safe. A program that passes runs; a failure while
 running goes back at most ``Replan.runtime_retries`` times, and never once
 anything with an effect has been called (answering the user included), since
 the plan would run again from the start. ``Replan(0, 0)`` is CaMeL's one shot.
+A call a policy refuses ends the run: a retry would let the planner look for
+another way to do what the policy forbids.
 
 The planner sees only typed errors (a code, a line, a name from its own
 program); a runtime error depends on data, so each one is kept with its label
@@ -20,21 +22,24 @@ run: the budget is the model's (``PlannerModel``), not the loop's.
 import dataclasses
 import textwrap
 from collections.abc import Callable, Iterable, Sequence
-from typing import Final, Literal, Unpack
+from typing import Final, Unpack
 
 from taintwall.core.errors import PlanError
-from taintwall.core.interpreter import CallHook, InterpreterOptions, LabeledPlanError, RunResult
-from taintwall.core.labels import Label
+from taintwall.core.interpreter import (
+    CallHook,
+    InterpreterOptions,
+    LabeledPlanError,
+    PendingCall,
+    RunResult,
+)
 from taintwall.core.plan import Plan, parse_plan
 from taintwall.llm import LLMClient, LLMError, StructuredReply, StructuredRequest, Usage
 from taintwall.planner import prompt
 from taintwall.planner.answer import NAME as ANSWER
 from taintwall.planner.answer import ReservedToolError, answer_tool
+from taintwall.planner.outcome import Answer, Attempt, Failure, Outcome, Phase
 from taintwall.planner.prompt import READER_TOOL as READER
-from taintwall.tools import CallLog, CallRecord, Implementation, Registry, ToolSpec
-
-type Phase = Literal["parse", "check", "run"]
-type Failure = Literal["static", "runtime", "effects", "planner"]
+from taintwall.tools import CallLog, Implementation, Registry, ToolSpec
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -57,53 +62,6 @@ class Replan:
     runtime_retries: int = 1
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
-class Attempt:
-    """One program the planner wrote, and why it was not the last."""
-
-    source: str
-    phase: Phase
-    errors: tuple[PlanError, ...] = ()
-    label: Label | None = None
-    """For a runtime error: what it depends on (data the planner never saw)."""
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class Answer:
-    """What the user was told, and the label of what it was built from."""
-
-    text: str
-    label: Label
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class Outcome:
-    """How a request ended."""
-
-    attempts: tuple[Attempt, ...]
-    answers: tuple[Answer, ...]
-    result: RunResult | None
-    """The last run's variables and trace, if a program ran to the end."""
-    failure: Failure | None
-    """``None`` when a program ran to the end."""
-    planner_error: LLMError | None
-    """Why the planner's model gave no program, when ``failure`` is ``"planner"``."""
-    effects_happened: bool
-    calls: tuple[CallRecord, ...]
-    """Every tool call of every attempt, in order: the shared call log's records."""
-    usage: Usage
-
-    @property
-    def completed(self) -> bool:
-        """Whether a program ran to the end, answering or not."""
-        return self.failure is None
-
-    @property
-    def answered(self) -> bool:
-        """Whether a program ran to the end and told the user something."""
-        return self.completed and bool(self.answers)
-
-
 PLAN_FIELD: Final = "plan"
 
 
@@ -122,52 +80,69 @@ class Planner:
         tools: Callable[[], Iterable[tuple[ToolSpec, Implementation]]],
         *,
         replan: Replan = Replan(),  # noqa: B008 - a frozen dataclass
-        policies: Sequence[CallHook] = (),
+        policies: Callable[[], Iterable[CallHook]] = tuple,
     ) -> None:
         self._client = client
         self._model = model
         self._tools = tools
         self._replan = replan
-        self._policies = tuple(policies)
+        self._policies = policies
 
     def run(self, request: str, **options: Unpack[InterpreterOptions]) -> Outcome:
         """Plan ``request``, check it, run it, and retry within the bounds.
 
-        ``tools`` is called once per run: a tool may hold state for one request
-        (the reader's call budget, a benchmark task's environment).
+        ``tools`` and ``policies`` are called once per run: a tool or a policy
+        may hold state for one request (the reader's call budget, a benchmark
+        task's environment, what a request has spent).
         """
         run = _Run(request, tuple(self._tools()))
+        policies = tuple(_Watched(policy, run) for policy in self._policies())
         while True:
             source = self._ask(run)
             if source is None:
                 return run.end("planner")
             plan = _check(source, run.registry)
             if not isinstance(plan, Plan):
-                phase, errors = plan
-                run.attempts.append(Attempt(source, phase, errors))
-                if run.static >= self._replan.static_retries:
-                    return run.end("static")
-                run.static += 1
-                run.user = prompt.static_retry(request, source, errors, run.earlier())
-                continue
-            interpreter, run.log = run.registry.interpreter(
-                policies=self._policies, log=run.log, **options
-            )
-            try:
-                result = interpreter.run(plan)
-            except LabeledPlanError as err:
-                # A fresh error: the raised one holds the interpreter's frames,
-                # and with them the values the plan read, in its traceback.
-                clean = LabeledPlanError(err, err.label)
-                run.attempts.append(Attempt(source, "run", (clean,), err.label))
-                if run.log.effects_happened:
-                    return run.end("effects")
-                if run.runtime >= self._replan.runtime_retries:
-                    return run.end("runtime")
-                run.runtime += 1
-                run.user = prompt.runtime_retry(request, source, clean, run.earlier())
-                continue
-            return run.end(None, result)
+                stop = self._static(run, request, source, *plan)
+            else:
+                interpreter, run.log = run.registry.interpreter(
+                    policies=policies, log=run.log, **options
+                )
+                try:
+                    return run.end(None, interpreter.run(plan))
+                except LabeledPlanError as err:
+                    stop = self._stopped(run, request, source, err)
+            if stop is not None:
+                return run.end(stop)
+
+    def _static(
+        self, run: "_Run", request: str, source: str, phase: Phase, errors: tuple[PlanError, ...]
+    ) -> Failure | None:
+        """Note a program that cannot run: ``"static"`` if the retries are spent."""
+        run.attempts.append(Attempt(source, phase, errors))
+        if run.static >= self._replan.static_retries:
+            return "static"
+        run.static += 1
+        run.user = prompt.static_retry(request, source, errors, run.earlier())
+        return None
+
+    def _stopped(
+        self, run: "_Run", request: str, source: str, err: LabeledPlanError
+    ) -> Failure | None:
+        """Note a program that stopped while running: why the run ends, if it does."""
+        # A fresh error: the raised one holds the interpreter's frames, and
+        # with them the values the plan read, in its traceback.
+        clean = LabeledPlanError(err, err.label)
+        run.attempts.append(Attempt(source, "run", (clean,), err.label))
+        if run.refused:
+            return "policy"
+        if run.log is not None and run.log.effects_happened:
+            return "effects"
+        if run.runtime >= self._replan.runtime_retries:
+            return "runtime"
+        run.runtime += 1
+        run.user = prompt.runtime_retry(request, source, clean, run.earlier())
+        return None
 
     def _ask(self, run: "_Run") -> str | None:
         """The planner's program, or ``None`` if the model gave none."""
@@ -213,6 +188,22 @@ def _strip_fence(source: str) -> str:
     return textwrap.dedent("\n".join(lines)).strip()
 
 
+class _Watched:
+    """A policy whose refusal the run notes, so that the run ends there."""
+
+    def __init__(self, policy: CallHook, run: "_Run") -> None:
+        self._policy = policy
+        self._run = run
+
+    def before(self, call: PendingCall) -> None:
+        """The policy's check; a refusal or a crash (both stop the call) is noted."""
+        try:
+            self._policy.before(call)
+        except BaseException:
+            self._run.refused = True
+            raise
+
+
 class _Run:
     """One request: its tools, what it has tried and spent, the call log of its attempts."""
 
@@ -228,6 +219,7 @@ class _Run:
         self.user = prompt.request(request)
         self.log: CallLog | None = None
         self.attempts: list[Attempt] = []
+        self.refused = False
         self.static = 0
         self.runtime = 0
         self.usage = Usage()
