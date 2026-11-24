@@ -100,6 +100,8 @@ def x_of(plan: str) -> Static:
         ("x = 1\nx = 2", INT),
         ("x = 1\nx = 1", Known(1)),
         ("x = 1\nx = 'a'", ANY),
+        ("x = True\nx = 1", ANY),
+        ("x = 1.0\nx = 1", ANY),
         ("x = 1\nx += 1", ANY),
         ("for x in txs():\n    pass", TX),
         ("for x in 'ab':\n    pass", STR),
@@ -118,3 +120,10 @@ def test_a_chain_longer_than_the_rounds_is_unknown() -> None:
     assert set(types.values()) == {ANY}
     short = infer(parse_plan("x2 = x1\nx1 = x0\nx0 = 1").tree, SPECS)
     assert short["x2"] == Known(1)
+
+
+def test_constants_of_different_types_differ() -> None:
+    assert Known(value=True) != Known(1)
+    assert Known(1.0) != Known(1)
+    assert Known(1) == Known(1)
+    assert len({Known(value=True), Known(1), Known(1.0)}) == 3

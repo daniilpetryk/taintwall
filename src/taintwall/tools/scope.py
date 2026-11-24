@@ -5,15 +5,20 @@
 A run reads a variable only after a statement bound it: ``x = ...`` once its
 value is computed, ``for x in ...`` once its iterable is, ``x += ...`` only
 after an earlier binding, since it reads ``x`` first. A read is early when no
-binding of its name ends before it in the plan text and none sits in a loop
-that also holds the read (a later iteration may see it). An early read fails
-whatever the data, as ``UNKNOWN_NAME``. A binding inside an ``if`` counts:
-whether it ran depends on data, so a read after it may succeed.
+binding of its name ends before it in the plan text, and no binding in a loop
+around it can have run first: one in an earlier iteration counts only if the
+read is conditional within that loop (under an ``if``, a conditional
+expression, a later operand of ``and``/``or`` or an inner loop), since an
+unconditional read runs in the first iteration before any later binding. A
+``while`` test runs before its body, so the body's bindings never precede its
+first evaluation. An early read fails whatever the data, as ``UNKNOWN_NAME``.
+A binding inside an ``if`` counts: whether it ran depends on data, so a read
+after it may succeed.
 """
 
 import ast
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 type Position = tuple[int, int]
 """Line and column in the plan text."""
@@ -24,14 +29,31 @@ class _Event:
     name: str
     at: Position
     loops: frozenset[int]
-    """The loops (by node id) whose every iteration includes this event."""
+    """Bindings: the loops (by node id) around them. Reads: the loops within
+    which they are conditional, so a binding there may have run first."""
     node: ast.AST | None = None
     """The read itself; ``None`` for a binding."""
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _Where:
+    loops: frozenset[int] = frozenset()
+    """Every loop around this point."""
+    guarded: frozenset[int] = frozenset()
+    """The loops within which this point is conditional."""
+
+    def enter(self, loop: ast.AST) -> "_Where":
+        """Inside ``loop``, not yet conditional within it."""
+        return _Where(self.loops | {id(loop)}, self.guarded)
+
+    def branch(self) -> "_Where":
+        """Under a condition: conditional within every loop around it."""
+        return _Where(self.loops, self.loops)
+
+
 def early_reads(tree: ast.Module) -> frozenset[int]:
     """The ids of the ``Name`` reads and ``x += ...`` statements that read too early."""
-    events = list(_events(tree, frozenset()))
+    events = list(_events(tree, _Where()))
     bindings = [event for event in events if event.node is None]
     return frozenset(
         id(read.node)
@@ -45,36 +67,59 @@ def early_reads(tree: ast.Module) -> frozenset[int]:
     )
 
 
-def _events(node: ast.AST, loops: frozenset[int]) -> Iterator[_Event]:
+def _events(node: ast.AST, where: _Where) -> Iterator[_Event]:
     """Reads and bindings under ``node``, each with where it happens."""
     match node:
         case ast.Name(name, ast.Load()):
-            yield _Event(name, _start(node), loops, node)
+            yield _Event(name, _start(node), where.guarded, node)
         case ast.Assign([ast.Name(name)], value):
-            yield from _events(value, loops)
-            yield _Event(name, _end(node), loops)
+            yield from _events(value, where)
+            yield _Event(name, _end(node), where.loops)
         case ast.AugAssign(ast.Name(name), _, value):
-            yield _Event(name, _start(node), loops, node)
-            yield from _events(value, loops)
-            yield _Event(name, _end(node), loops)
+            yield _Event(name, _start(node), where.guarded, node)
+            yield from _events(value, where)
+            yield _Event(name, _end(node), where.loops)
         case ast.For() | ast.While():
-            yield from _loop(node, loops | {id(node)}, loops)
+            yield from _loop(node, where)
+        case ast.If() | ast.IfExp() | ast.BoolOp():
+            yield from _branches(node, where)
         case _:
             for child in ast.iter_child_nodes(node):
-                yield from _events(child, loops)
+                yield from _events(child, where)
 
 
-def _loop(node: ast.AST, inside: frozenset[int], outside: frozenset[int]) -> Iterator[_Event]:
-    """A loop: a ``for`` evaluates its iterable once, before; everything else repeats."""
+def _loop(node: ast.AST, where: _Where) -> Iterator[_Event]:
+    """A ``for`` evaluates its iterable once, before; a ``while`` its test first."""
+    inside = where.enter(node)
     if isinstance(node, ast.For):
         assert isinstance(node.target, ast.Name)  # noqa: S101 - parse_plan allows no other
-        yield from _events(node.iter, outside)
-        yield _Event(node.target.id, _end(node.iter), inside)
-        for statement in node.body:
-            yield from _events(statement, inside)
+        yield from _events(node.iter, where)
+        yield _Event(node.target.id, _end(node.iter), inside.loops)
     else:
-        for child in ast.iter_child_nodes(node):
-            yield from _events(child, inside)
+        assert isinstance(node, ast.While)  # noqa: S101 - the caller dispatches no other
+        # The first test runs before the body: its bindings never precede it.
+        yield from _events(node.test, where)
+    # The body may run zero times, so it is conditional for the loops around
+    # this one; not for this one, whose first iteration runs it in order.
+    body = _Where(inside.loops, where.loops)
+    for statement in node.body:
+        yield from _events(statement, body)
+
+
+def _branches(node: ast.AST, where: _Where) -> Iterator[_Event]:
+    """A test or first operand runs; what follows it may not."""
+    first: ast.AST = node
+    rest: Sequence[ast.AST] = ()
+    match node:
+        case ast.If(test, body, orelse):
+            first, rest = test, (*body, *orelse)
+        case ast.IfExp(test, body, orelse):
+            first, rest = test, (body, orelse)
+        case ast.BoolOp(_, [operand, *later]):
+            first, rest = operand, tuple(later)
+    yield from _events(first, where)
+    for child in rest:
+        yield from _events(child, where.branch())
 
 
 def _start(node: ast.AST) -> Position:

@@ -7,7 +7,8 @@ Modules, from the entry point down (``pyproject.toml`` enforces the order):
 * ``registry``: specs with implementations; interpreter tools and a call log;
 * ``check``: the static checker: a plan's sure mistakes and its calls, before it runs;
 * ``calls``: the hook that checks arguments and records calls before they run;
-* ``infer``, ``scope``: what a plan's values can be; which reads come too early;
+* ``signatures``, ``scope``: what builtins and methods take; which reads come too early;
+* ``infer``: what a plan's values can be, without running it;
 * ``spec``: a tool's parameters, result, effects, readers, and signature;
 * ``values``, ``schema``: plan values to Python and back; parameter types.
 """

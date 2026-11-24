@@ -24,9 +24,18 @@ MAX_ROUNDS: Final = 64
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Known:
-    """A constant written in the plan: its value is known, not only its type."""
+    """A constant written in the plan: its value is known, not only its type.
+
+    Compared by type as well as value: ``True``, ``1`` and ``1.0`` are equal in
+    Python but fit different parameters.
+    """
 
     value: object
+    kind: type = dataclasses.field(init=False)
+
+    def __post_init__(self) -> None:
+        """Record the value's exact type."""
+        object.__setattr__(self, "kind", type(self.value))
 
 
 type Static = ValueType | Known
@@ -252,7 +261,7 @@ def _same_kind(value: ValueType, expected: ValueType) -> bool:
     if isinstance(expected, OneOf):
         return isinstance(value, Scalar) and any(accepts(value, item) for item in expected.values)
     if isinstance(value, ListOf) and isinstance(expected, ListOf):
-        return may_fit(value.item, expected.item)
+        return True  # it may be empty, and an empty tuple fits any list type
     # The same atom, an int for a float, or two records (their fields are
     # checked when the call runs); any other pair is two kinds of value.
     return (

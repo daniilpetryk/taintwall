@@ -36,10 +36,11 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   functions run through it (#30).
 - Static plan checker: before a plan runs, every statement that would fail
   whatever the data (unknown tools, names read before they are bound,
-  arguments that do not fit, missing fields, indexes, methods, loops and
-  f-string parts a value cannot take), as typed errors from the plan text
-  only, and every call with its effects. Over the study's 91 accepted plans it
-  stops 18, most for formatting a tool's record in an f-string (#36).
+  arguments that do not fit a tool, builtin or method, missing fields,
+  indexes, loops and f-string parts a value cannot take), as typed errors
+  from the plan text only, and every call with its effects and constant
+  arguments. Over the study's 91 accepted plans it stops 21, most for
+  formatting a tool's record in an f-string (#36).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,

@@ -35,6 +35,8 @@ from taintwall.core.plan import Plan
 from taintwall.tools.infer import Known, Static, infer, is_text, may_fit, typeof
 from taintwall.tools.schema import ListOf, RecordOf, Scalar
 from taintwall.tools.scope import early_reads
+from taintwall.tools.signatures import BUILTINS as BUILTIN_RULES
+from taintwall.tools.signatures import METHODS
 from taintwall.tools.spec import Effects, ToolSpec
 
 MAX_ERRORS: Final = 20
@@ -48,6 +50,9 @@ class PlannedCall:
     name: str
     line: int
     effects: Effects
+    constants: tuple[tuple[str, object], ...] = ()
+    """Arguments the plan writes as constants, by parameter name: what an
+    approval can show before anything runs (a recipient, an amount)."""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -157,11 +162,24 @@ class _Checker(ast.NodeVisitor):
         name = node.func.id
         spec = self.specs.get(name)
         if spec is not None:
-            self.calls.append(PlannedCall(name, node.lineno, spec.effects))
+            self.calls.append(
+                PlannedCall(name, node.lineno, spec.effects, self._constants(spec, node))
+            )
             if not self._fits(spec, node):
                 self._fail(PlanErrorCode.BAD_ARGUMENTS, node, name)
         elif name not in BUILTINS:
             self._fail(PlanErrorCode.UNKNOWN_TOOL, node, name)
+        else:
+            self._builtin(node, name)
+
+    def _builtin(self, node: ast.Call, name: str) -> None:
+        """A builtin: positional arguments only, as many and of the kinds it takes."""
+        if node.keywords:
+            self._fail(PlanErrorCode.BAD_ARGUMENTS, node, name)
+            return
+        code = BUILTIN_RULES[name].check([self._typeof(arg) for arg in node.args])
+        if code is not None:
+            self._fail(code, node, name)
 
     def _method(self, node: ast.Call, method: ast.Attribute) -> None:
         """``get`` needs a record; every other method a string."""
@@ -172,6 +190,18 @@ class _Checker(ast.NodeVisitor):
             never = not may_fit(receiver, Scalar.STR)
         if never:
             self._fail(PlanErrorCode.TYPE_MISMATCH, node, method.attr)
+            return
+        code = METHODS[method.attr].check([self._typeof(arg) for arg in node.args])
+        if code is not None:
+            self._fail(code, node, method.attr)
+
+    def _constants(self, spec: ToolSpec, node: ast.Call) -> tuple[tuple[str, object], ...]:
+        """The arguments written as constants, by parameter name (for an approval)."""
+        names = [param.name for param in spec.params]
+        given = [*zip(names, node.args, strict=False)]  # pragma: no mutate - extra ones ignored
+        given += [(keyword.arg, keyword.value) for keyword in node.keywords if keyword.arg]
+        known = ((name, self._typeof(value)) for name, value in given)
+        return tuple((name, kind.value) for name, kind in known if isinstance(kind, Known))
 
     def _fits(self, spec: ToolSpec, node: ast.Call) -> bool:
         """Whether the call's arguments could bind to the spec's parameters."""

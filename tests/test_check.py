@@ -56,6 +56,10 @@ SPECS: list[tuple[ToolSpec, Implementation]] = [
         lambda text=None: text or "",
     ),
     (
+        ToolSpec("nums", "N.", (Param("xs", ListOf(Scalar.INT)),), Scalar.INT, READ_ONLY),
+        lambda xs: len(xs),  # noqa: PLW0108 - the registry calls it by keyword
+    ),
+    (
         ToolSpec("keep", "K.", (Param("tx", TX),), Scalar.BOOL, Effects(writes=True)),
         lambda tx: True,  # noqa: ARG005 - the argument is checked, not used
     ),
@@ -118,6 +122,26 @@ BAD = [
     "y = f'{True:.2f}'",
     "t = txs()\nfor c in t.lower():\n    pass",
     "t = txs()\nfor c in f'{t[0]}':\n    pass",
+    "y = len()",
+    "y = len(x=1)",
+    "y = round(1, 2, 3)",
+    "y = min()",
+    "y = range('a')",
+    "y = int((1,))",
+    "y = abs('a')",
+    "y = str((1,))",
+    "y = sum('ab')",
+    "y = any(1)",
+    "y = sorted(1)",
+    "t = txs()\ny = t[0].get(1)",
+    "t = txs()\ny = t[0].get()",
+    "y = 'a'.replace('a')",
+    "y = 'a'.lower('x')",
+    "y = 'a'.startswith(1)",
+    "y = ','.join(1)",
+    "for i in range(2):\n    y = prev\n    prev = i",
+    "while m < 3:\n    m = 1",
+    "for i in range(2):\n    total += i\n    total = 0",
 ]
 
 
@@ -152,6 +176,14 @@ GOOD = [
     "t = txs()\nk = 'to'\ny = t[0][k]",
     "b = balance()\ny = f'{b:.2f} {b} {None}'",
     "t = txs()\ny = t[0].get('to')",
+    "w = ''.split()\ny = nums(w)",
+    "x = True\nx = 1\ny = txs(x)",
+    "x = 1.0\nx = 1\ny = txs(x)",
+    "m = 0\nwhile m < 3:\n    m += 1",
+    "for i in range(2):\n    if i:\n        y = send(prev, 1.0)\n    prev = str(i)",
+    "y = round(2.5, 1) + abs(-1) + min(1, 2) + sum((1, 2))\nz = int('3') + len('ab')",
+    "y = ','.join(('a', 'b')).strip().split(',')",
+    "for i in range(2):\n    y = i > 0 and prev\n    prev = i",
 ]
 
 
@@ -191,6 +223,14 @@ def test_calls_and_their_effects_are_listed_before_anything_runs() -> None:
         ("keep", 4),
     ]
     assert check.effects == Effects(writes=True, moves_funds=True, outward=True)
+    constants = TOOLS.check(
+        parse_plan("b = balance()\nx = send('GB29', amount=b)\ny = send(to='a', amount=2.5)")
+    )
+    assert [call.constants for call in constants.calls] == [
+        (),
+        (("to", "GB29"),),
+        (("to", "a"), ("amount", 2.5)),
+    ]
     assert TOOLS.check(parse_plan("b = balance()")).effects == READ_ONLY
 
 
@@ -198,11 +238,11 @@ def test_inference_that_does_not_settle_assumes_nothing() -> None:
     # In a loop a read may come before its binding; one round of inference
     # settles one link of this chain, so a long one never settles.
     def chain(links: int) -> str:
-        body = "\n".join(f"    x{i + 1} = x{i}" for i in reversed(range(links)))
+        body = "\n".join(f"    if i:\n        x{i + 1} = x{i}" for i in reversed(range(links)))
         return f"x0 = 'ten'\nfor i in range(2):\n{body}\ny = send('a', x{links})"
 
     assert static_errors(chain(70)) == []
-    assert static_errors(chain(3)) == [(C.BAD_ARGUMENTS, 6, "send")]
+    assert static_errors(chain(3)) == [(C.BAD_ARGUMENTS, 9, "send")]
 
 
 @pytest.mark.parametrize(
@@ -227,7 +267,7 @@ def test_inference_that_does_not_settle_assumes_nothing() -> None:
         (Scalar.FLOAT, Scalar.INT, False),
         (Scalar.BOOL, Scalar.INT, False),
         (ListOf(Scalar.INT), ListOf(Scalar.FLOAT), True),
-        (ListOf(Scalar.STR), ListOf(Scalar.INT), False),
+        (ListOf(Scalar.STR), ListOf(Scalar.INT), True),
         (ListOf(Scalar.STR), Scalar.STR, False),
         (TX, RecordOf("Other", ()), True),
         (TX, ListOf(Scalar.ANY), False),
@@ -248,7 +288,8 @@ EXPRESSIONS = st.sampled_from(
         "send('a', 1.0)", "send(a, b)", "send(to=a, amount=b)", "tag('a')", "tag(a)",
         "note(a)", "note(text=a)", "keep(a)", "len(a)", "str(a)", "int(a)", "float(a)",
         "sorted(a)", "range(2)", "f'{a}'", "a.lower()", "a.split()", "not a", "a == b",
-        "a + b", "-a", "a is None", "min(a, b)", "round(a)", "q",
+        "a + b", "-a", "a is None", "min(a, b)", "round(a)", "q", "1.0", "''.split()",
+        "()", "range(0)", "nums(a)", "txs(a)", "len()", "a.replace('x')", "a.get(a)",
     ]
 )  # fmt: skip
 """Expressions with no branch inside: every part of them runs."""
