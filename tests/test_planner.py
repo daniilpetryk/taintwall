@@ -10,7 +10,7 @@ from taintwall.core.labels import Readers, Source
 from taintwall.core.mint import Mint
 from taintwall.core.syntax import STRING_METHODS
 from taintwall.llm import LLMError, StructuredReply, StructuredRequest, Usage, supported
-from taintwall.planner import PLAN_SCHEMA, RULES, Outcome, Planner, PlannerModel, Replan
+from taintwall.planner import PLAN_SCHEMA, Outcome, Planner, PlannerModel, Replan, rules
 from taintwall.planner.prompt import runtime_retry, static_retry
 from taintwall.tools import READ_ONLY, Effects, Implementation, Param, Scalar, ToolSpec
 
@@ -75,16 +75,15 @@ GOOD = "b = balance()\nanswer(f'Your balance is {b:.2f}')"
 
 class TestPrompt:
     def test_the_rules_name_every_builtin_and_string_method(self) -> None:
-        for name in BUILTINS:
-            assert f"`{name}`" in RULES
-        for name in STRING_METHODS:
-            assert f"`.{name}()`" in RULES
+        text = rules()
+        assert ", ".join(f"`{name}`" for name in sorted(BUILTINS)) in text
+        assert ", ".join(f"`.{name}()`" for name in sorted(STRING_METHODS)) in text
 
     def test_the_system_prompt_lists_the_tools_and_answer(self) -> None:
         model = FakePlanner(GOOD)
         plan(model)
         system = model.requests[0].system
-        assert RULES in system
+        assert rules() in system
         assert "def balance() -> float:" in system
         assert "def answer(text: str) -> None:" in system
         assert model.requests[0] == StructuredRequest(

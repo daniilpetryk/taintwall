@@ -32,7 +32,12 @@ def _names(names: frozenset[str], form: str) -> str:
     return ", ".join(form.format(name) for name in sorted(names))
 
 
-RULES: Final = f"""\
+def rules() -> str:
+    """The plan language's rules, with the core's own lists of builtins and methods.
+
+    Built when a prompt is, not at import, so a change to those lists shows here.
+    """
+    return f"""\
 The program runs in a restricted Python subset. Use only:
 
 - assignments to one name (`x = ...`), `x += y` (also `-=` and `*=`), and
@@ -53,6 +58,7 @@ passed to `str()`: format a record's fields, not the record. Not allowed:
 imports, `def`, `class`, `lambda`, comprehensions, other methods, slices,
 `x[i] = v`, `try`, `**`, and names starting with `_`. Values cannot be
 changed in place: build a new tuple with `items = items + (x,)`."""
+
 
 SYSTEM: Final = """\
 You are the planner of an assistant. You never see the user's data: you write
@@ -75,7 +81,7 @@ Functions:
 
 def system(functions: str) -> str:
     """The planner's system prompt, for the tools that ``functions`` describes."""
-    return SYSTEM.format(rules=RULES, functions=functions)
+    return SYSTEM.format(rules=rules(), functions=functions)
 
 
 def request(text: str) -> str:

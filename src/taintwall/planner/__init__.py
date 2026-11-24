@@ -19,11 +19,10 @@ from taintwall.planner.loop import (
     PlannerModel,
     Replan,
 )
-from taintwall.planner.prompt import PLAN_SCHEMA, RULES, SYSTEM
+from taintwall.planner.prompt import PLAN_SCHEMA, SYSTEM, rules
 
 __all__ = [
     "PLAN_SCHEMA",
-    "RULES",
     "SYSTEM",
     "Answer",
     "Attempt",
@@ -34,4 +33,5 @@ __all__ = [
     "PlannerModel",
     "Replan",
     "answer_tool",
+    "rules",
 ]
