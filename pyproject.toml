@@ -252,10 +252,10 @@ containers = ["taintwall.core.labels"]
 layers = ["value", "label | immutability", "source", "errors"]
 
 [[tool.importlinter.contracts]]
-name = "Tool layers: registry > checker, call log > inference > specs > values, schema"
+name = "Tool layers: registry > checker, call log > inference, scope > specs > values, schema"
 type = "layers"
 containers = ["taintwall.tools"]
-layers = ["registry", "check | calls", "infer", "spec", "values | schema"]
+layers = ["registry", "check | calls", "infer | scope", "spec", "values | schema"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"

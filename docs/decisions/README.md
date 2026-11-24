@@ -23,4 +23,4 @@ decisions refine older ones rather than editing them.
 | [0015](0015-versions-and-changelog.md) | Semantic versions per release; the changelog is the release notes | 2026-11-19 | [#28](https://github.com/daniilpetryk/taintwall/pull/28) | accepted |
 | [0016](0016-language-versions.md) | The plan language has versions; a plan census records its version | 2026-11-19 | [#29](https://github.com/daniilpetryk/taintwall/pull/29) | accepted |
 | [0017](0017-tools-from-trusted-specs.md) | Tools come from trusted specs; a hook sees every call before it runs | 2026-11-20 | [#30](https://github.com/daniilpetryk/taintwall/pull/30) | accepted |
-| [0018](0018-static-checker-refuses-only-sure-failures.md) | The static checker refuses only what would fail whatever the data | 2026-11-24 | [#31](https://github.com/daniilpetryk/taintwall/pull/31) | accepted |
+| [0018](0018-static-checker-refuses-only-sure-failures.md) | The static checker reports only statements that fail whatever the data | 2026-11-24 | [#31](https://github.com/daniilpetryk/taintwall/pull/31) | accepted |

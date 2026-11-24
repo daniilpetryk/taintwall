@@ -4,18 +4,21 @@
 
 ``parse_plan`` already refuses anything outside the language. This module
 reads a parsed plan against the tool specs and finds the mistakes that would
-stop it at run time whatever the data: a tool or variable that does not
-exist, arguments that do not fit a tool's parameters, a field a record type
-does not have, a tool's name reused as a variable. Every error is a typed
-``PlanError`` built from the plan text and the specs only, never from data,
-so the planner may see all of them and retry (contribution D, Q3).
+stop it at run time whatever the data: a tool that does not exist, a
+variable read before anything binds it, arguments that do not fit a tool's
+parameters, a field a record type does not have, an index or a loop a value
+cannot take, a tool's name reused as a variable. Every error is a typed
+``PlanError`` with the code, line and detail the run would give, built from
+the plan text and the specs only, never from data, so the planner may see
+all of them and retry (contribution D, Q3).
 
-A mistake is reported only when it would fail every time it runs: types are
-inferred flow-insensitively (a variable has the join of everything assigned
-to it, and anything unclear is ``object``), so a plan the checker accepts
-can still fail on data, but a plan it rejects has a statement that cannot
-succeed. A call in a branch that never runs is still reported: it is wrong
-code, and the planner should fix it.
+The guarantee: every statement the checker reports fails whenever it runs.
+Types are inferred flow-insensitively (``infer``) and a check fails only
+when no value could pass, so a plan the checker accepts can still fail on
+data. A statement in a branch that does not run is still reported (it is
+wrong code the planner should fix), so a plan with a mistake in such a
+branch can run and still be refused; a plan without branches, loops,
+conditional expressions or ``and``/``or`` that runs is never refused.
 
 The checker also lists every tool call site with the tool's effects: the
 summary a plan-level approval (Q10) shows before anything runs.
@@ -29,8 +32,9 @@ from typing import Final, override
 from taintwall.core.errors import PlanError, PlanErrorCode
 from taintwall.core.interpreter import BUILTINS
 from taintwall.core.plan import Plan
-from taintwall.tools.infer import Known, Static, assignments, infer, is_text, may_fit, typeof
+from taintwall.tools.infer import Known, Static, infer, is_text, may_fit, typeof
 from taintwall.tools.schema import ListOf, RecordOf, Scalar
+from taintwall.tools.scope import early_reads
 from taintwall.tools.spec import Effects, ToolSpec
 
 MAX_ERRORS: Final = 20
@@ -54,7 +58,8 @@ class PlanCheck:
     """Ordered by line, at most ``MAX_ERRORS``; empty if the plan may run."""
 
     calls: tuple[PlannedCall, ...]
-    """Every tool call site, in source order, whether or not it will run."""
+    """Every tool call site, in the order they would run (arguments before the
+    call), whether or not they will run."""
 
     @property
     def ok(self) -> bool:
@@ -73,8 +78,7 @@ class PlanCheck:
 
 def check_plan(plan: Plan, specs: Mapping[str, ToolSpec]) -> PlanCheck:
     """Check ``plan`` against the tools in ``specs`` without running it."""
-    defined = {binding.name for binding in assignments(plan.tree) if binding.value is not None}
-    checker = _Checker(specs, infer(plan.tree, specs), defined)
+    checker = _Checker(specs, infer(plan.tree, specs), early_reads(plan.tree))
     checker.visit(plan.tree)
     # One error per (line, code, detail), in that order: a name misspelled
     # twice on a line is one fix.
@@ -84,64 +88,92 @@ def check_plan(plan: Plan, specs: Mapping[str, ToolSpec]) -> PlanCheck:
 
 
 class _Checker(ast.NodeVisitor):
+    """Visits a node's parts before the node.
+
+    A part that surely fails makes the whole expression unknown, so one
+    mistake is reported once, as the run stops at it.
+    """
+
     def __init__(
-        self, specs: Mapping[str, ToolSpec], types: Mapping[str, Static], defined: set[str]
+        self, specs: Mapping[str, ToolSpec], types: Mapping[str, Static], early: frozenset[int]
     ) -> None:
         self.specs = specs
         self.types = types
-        self.defined = defined
-        """Names some ``=`` or ``for`` binds; ``x += 1`` alone reads ``x`` first."""
+        self.early = early
+        """Reads (by node id) that come before any binding of their name."""
+        self.failed: set[int] = set()
+        """Nodes (by id) found to fail."""
         self.errors: list[tuple[int, str, str]] = []
         """Line, code and detail of each failure found."""
         self.calls: list[PlannedCall] = []
 
-    def fail(self, code: PlanErrorCode, node: ast.expr | ast.stmt, detail: str = "") -> None:
+    def _fail(self, code: PlanErrorCode, node: ast.expr | ast.stmt, detail: str = "") -> None:
+        self.failed.add(id(node))
         self.errors.append((node.lineno, code.value, detail))
 
-    def typeof(self, node: ast.expr) -> Static:
+    def _typeof(self, node: ast.expr) -> Static:
+        """What is known of ``node``; nothing if a part of it surely fails."""
+        if any(id(child) in self.failed for child in ast.walk(node)):
+            return Scalar.ANY
         return typeof(node, self.types, self.specs)
 
     @override
     def visit_Name(self, node: ast.Name) -> None:
-        if isinstance(node.ctx, ast.Load) and node.id not in self.defined:
-            self.fail(PlanErrorCode.UNKNOWN_NAME, node, node.id)
+        if id(node) in self.early:
+            self._fail(PlanErrorCode.UNKNOWN_NAME, node, node.id)
         elif isinstance(node.ctx, ast.Store) and (node.id in self.specs or node.id in BUILTINS):
-            self.fail(PlanErrorCode.UNSUPPORTED, node, node.id)
+            self._fail(PlanErrorCode.UNSUPPORTED, node, node.id)
 
     @override
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
-        # ``x += y`` reads ``x`` before it binds it.
+        # ``x += y`` reads ``x`` before it binds it; a tool's name as ``x`` is
+        # refused first, as the run does.
         assert isinstance(node.target, ast.Name)  # noqa: S101 - parse_plan allows no other
-        if node.target.id not in self.defined:
-            self.fail(PlanErrorCode.UNKNOWN_NAME, node, node.target.id)
+        name = node.target.id
+        if id(node) in self.early and name not in self.specs and name not in BUILTINS:
+            self._fail(PlanErrorCode.UNKNOWN_NAME, node, name)
         self.generic_visit(node)
 
     @override
     def visit_For(self, node: ast.For) -> None:
+        self.visit(node.iter)
         # A loop runs over a plan tuple only; a string, number or record never is one.
-        if not may_fit(self.typeof(node.iter), ListOf(Scalar.ANY)):
-            self.fail(PlanErrorCode.TYPE_MISMATCH, node.iter)
-        self.generic_visit(node)
+        if not may_fit(self._typeof(node.iter), ListOf(Scalar.ANY)):
+            self._fail(PlanErrorCode.TYPE_MISMATCH, node.iter)
+        self.visit(node.target)
+        for statement in node.body:
+            self.visit(statement)
 
     @override
     def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Name):
-            name = node.func.id
-            spec = self.specs.get(name)
-            if spec is not None:
-                self.calls.append(PlannedCall(name, node.lineno, spec.effects))
-                if not self.fits(spec, node):
-                    self.fail(PlanErrorCode.BAD_ARGUMENTS, node, name)
-            elif name not in BUILTINS:
-                self.fail(PlanErrorCode.UNKNOWN_TOOL, node, name)
-        else:
-            # A method call: check its receiver, not the method as a field.
-            assert isinstance(node.func, ast.Attribute)  # noqa: S101 - parse_plan allows no other
+        if isinstance(node.func, ast.Attribute):
             self.visit(node.func.value)
         for argument in (*node.args, *(keyword.value for keyword in node.keywords)):
             self.visit(argument)
+        if isinstance(node.func, ast.Attribute):
+            self._method(node, node.func)
+            return
+        assert isinstance(node.func, ast.Name)  # noqa: S101 - parse_plan allows no other
+        name = node.func.id
+        spec = self.specs.get(name)
+        if spec is not None:
+            self.calls.append(PlannedCall(name, node.lineno, spec.effects))
+            if not self._fits(spec, node):
+                self._fail(PlanErrorCode.BAD_ARGUMENTS, node, name)
+        elif name not in BUILTINS:
+            self._fail(PlanErrorCode.UNKNOWN_TOOL, node, name)
 
-    def fits(self, spec: ToolSpec, node: ast.Call) -> bool:
+    def _method(self, node: ast.Call, method: ast.Attribute) -> None:
+        """``get`` needs a record; every other method a string."""
+        receiver = self._typeof(method.value)
+        if method.attr == "get":
+            never = isinstance(receiver, ListOf | Known) or receiver in _NOT_RECORDS
+        else:
+            never = not may_fit(receiver, Scalar.STR)
+        if never:
+            self._fail(PlanErrorCode.TYPE_MISMATCH, node, method.attr)
+
+    def _fits(self, spec: ToolSpec, node: ast.Call) -> bool:
         """Whether the call's arguments could bind to the spec's parameters."""
         if len(node.args) > len(spec.params):
             return False
@@ -156,7 +188,7 @@ class _Checker(ast.NodeVisitor):
         if not set(given) <= set(params):
             return False
         return all(
-            may_fit(self.typeof(given[param.name]), param.type)
+            may_fit(self._typeof(given[param.name]), param.type)
             if param.name in given
             else not param.required
             for param in spec.params
@@ -164,24 +196,52 @@ class _Checker(ast.NodeVisitor):
 
     @override
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        self.field(node, self.typeof(node.value), node.attr, node.attr)
         self.visit(node.value)
+        self._field(node, self._typeof(node.value), node.attr, node.attr)
 
     @override
     def visit_Subscript(self, node: ast.Subscript) -> None:
-        container = self.typeof(node.value)
-        if isinstance(container, RecordOf) and is_text(node.slice):
-            self.field(node, container, node.slice.value, "")  # type: ignore[attr-defined]
         self.generic_visit(node)
+        container, index = self._typeof(node.value), self._typeof(node.slice)
+        if isinstance(container, RecordOf):
+            if not may_fit(index, Scalar.STR):
+                self._fail(PlanErrorCode.TYPE_MISMATCH, node)
+            elif is_text(node.slice):
+                self._field(node, container, node.slice.value, "")  # type: ignore[attr-defined]
+        elif _is_sequence(container):
+            # A tuple or a string takes a whole number, nothing else.
+            if not may_fit(index, Scalar.INT):
+                self._fail(PlanErrorCode.TYPE_MISMATCH, node)
+        elif isinstance(container, Known) or container in _NOT_RECORDS:
+            self._fail(PlanErrorCode.TYPE_MISMATCH, node)
 
-    def field(self, node: ast.expr, record: Static, field: str, detail: str) -> None:
+    @override
+    def visit_FormattedValue(self, node: ast.FormattedValue) -> None:
+        self.generic_visit(node)
+        # An f-string formats atoms only, and a number format numbers only.
+        value = self._typeof(node.value)
+        atom = not isinstance(value, ListOf | RecordOf)
+        number = node.format_spec is None or may_fit(value, Scalar.FLOAT)
+        if not (atom and number):
+            self._fail(PlanErrorCode.TYPE_MISMATCH, node, "format")
+
+    def _field(self, node: ast.expr, record: Static, field: str, detail: str) -> None:
         """A field read: refused if the record type surely lacks it, or it is no record."""
         if isinstance(record, RecordOf) and record.fields and record.closed:
             if field not in dict(record.fields):
-                self.fail(PlanErrorCode.MISSING_FIELD, node, detail)
+                self._fail(PlanErrorCode.MISSING_FIELD, node, detail)
         elif isinstance(record, ListOf | Known) or record in _NOT_RECORDS:
-            self.fail(PlanErrorCode.TYPE_MISMATCH, node, detail)
+            self._fail(PlanErrorCode.TYPE_MISMATCH, node, detail)
 
 
 _NOT_RECORDS: Final = frozenset({Scalar.STR, Scalar.INT, Scalar.FLOAT, Scalar.BOOL, Scalar.NONE})
 """Types that are never a record: reading a field of one always fails."""
+
+
+def _is_sequence(kind: Static) -> bool:
+    """Whether a value is surely a plan tuple or a string."""
+    return (
+        isinstance(kind, ListOf)
+        or kind is Scalar.STR
+        or (isinstance(kind, Known) and type(kind.value) is str)
+    )

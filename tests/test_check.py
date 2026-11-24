@@ -101,6 +101,23 @@ BAD = [
     "for c in 'abc':\n    pass",
     "x = keep(1)",
     "x = send(to=1, amount=1.0)",
+    "y = send(x, 1.0)\nx = 1",
+    "y = x.amount\nx = 'a'",
+    "for a in f'{a}':\n    pass",
+    "a = a + 1",
+    "send += 1",
+    "t = txs()\ny = t['to']",
+    "b = balance()\ny = b[0]",
+    "y = 'ab'['x']",
+    "r = {'a': 1}\ny = r[0]",
+    "y = (1, 2)[1.5]",
+    "y = None[0]",
+    "t = txs()\ny = t.lower()",
+    "b = balance()\ny = b.get('a')",
+    "t = txs()\ny = f'{t}'",
+    "y = f'{True:.2f}'",
+    "t = txs()\nfor c in t.lower():\n    pass",
+    "t = txs()\nfor c in f'{t[0]}':\n    pass",
 ]
 
 
@@ -129,6 +146,12 @@ GOOD = [
     "for i in range(2):\n    x = send(str(i), 1.0)",
     "x = sorted((1, 2))\ny = x[0]",
     "x = None\ny = note(x)",
+    "for i in range(2):\n    if i > 0:\n        y = send(prev, 1.0)\n    prev = str(i)",
+    "n = 0\nwhile n < 2:\n    n += 1",
+    "x = 'ab'[0]\ny = (1, 2)[1]\nr = {'a': 1}\nz = r['a']",
+    "t = txs()\nk = 'to'\ny = t[0][k]",
+    "b = balance()\ny = f'{b:.2f} {b} {None}'",
+    "t = txs()\ny = t[0].get('to')",
 ]
 
 
@@ -164,21 +187,22 @@ def test_calls_and_their_effects_are_listed_before_anything_runs() -> None:
     assert [(call.name, call.line) for call in check.calls] == [
         ("balance", 1),
         ("send", 3),
-        ("keep", 4),
         ("txs", 4),
+        ("keep", 4),
     ]
     assert check.effects == Effects(writes=True, moves_funds=True, outward=True)
     assert TOOLS.check(parse_plan("b = balance()")).effects == READ_ONLY
 
 
 def test_inference_that_does_not_settle_assumes_nothing() -> None:
-    chain = "\n".join(f"x{i + 1} = x{i}" for i in range(70))
-    late = f"{chain}\nx0 = 'ten'\ny = send('a', x70)"
-    assert static_errors(late) == []
-    short = "\n".join(f"x{i + 1} = x{i}" for i in range(3))
-    assert static_errors(f"{short}\nx0 = 'ten'\ny = send('a', x3)") == [
-        (C.BAD_ARGUMENTS, 5, "send")
-    ]
+    # In a loop a read may come before its binding; one round of inference
+    # settles one link of this chain, so a long one never settles.
+    def chain(links: int) -> str:
+        body = "\n".join(f"    x{i + 1} = x{i}" for i in reversed(range(links)))
+        return f"x0 = 'ten'\nfor i in range(2):\n{body}\ny = send('a', x{links})"
+
+    assert static_errors(chain(70)) == []
+    assert static_errors(chain(3)) == [(C.BAD_ARGUMENTS, 6, "send")]
 
 
 @pytest.mark.parametrize(
@@ -218,28 +242,42 @@ def test_may_fit_is_false_only_when_no_value_could(
 
 EXPRESSIONS = st.sampled_from(
     [
-        "1", "2.5", "'a'", "'b'", "None", "True", "(1, 2)", "('a',)", "a", "b",
-        "balance()", "txs()", "txs(1)", "a.amount", "a[0]", "b[0].to",
-        "send('a', 1.0)", "send(a, b)", "tag('a')", "tag(a)", "note(a)", "len(a)",
-        "str(a)", "a if True else b",
+        "1", "2.5", "'a'", "None", "True", "(1, 2)", "('a', 'b')", "[1]",
+        "{'amount': 1.0, 'to': 'a'}", "a", "b", "balance()", "txs()", "txs(n=1)",
+        "txs(1)[0]", "a.amount", "a.to", "a[0]", "a['to']", "b[0].to", "a.get('to')",
+        "send('a', 1.0)", "send(a, b)", "send(to=a, amount=b)", "tag('a')", "tag(a)",
+        "note(a)", "note(text=a)", "keep(a)", "len(a)", "str(a)", "int(a)", "float(a)",
+        "sorted(a)", "range(2)", "f'{a}'", "a.lower()", "a.split()", "not a", "a == b",
+        "a + b", "-a", "a is None", "min(a, b)", "round(a)", "q",
     ]
 )  # fmt: skip
+"""Expressions with no branch inside: every part of them runs."""
 
 
 @st.composite
-def plans(draw: st.DrawFn) -> str:
+def straight_plans(draw: st.DrawFn) -> str:
+    """Plans without branches, loops, conditional expressions or ``and``/``or``."""
     lines = []
     for _ in range(draw(st.integers(1, 5))):
-        name = draw(st.sampled_from(["a", "b"]))
-        value = draw(EXPRESSIONS)
-        shape = draw(
-            st.sampled_from(["{n} = {v}", "if a:\n    {n} = {v}", "for {n} in {v}:\n    pass"])
-        )
-        lines.append(shape.format(n=name, v=value))
+        name = draw(st.sampled_from(["a", "b", "x"]))
+        shape = draw(st.sampled_from(["{n} = {v}", "{n} = {v}", "{n} += 1"]))
+        lines.append(shape.format(n=name, v=draw(EXPRESSIONS)))
     return "\n".join(lines)
 
 
-@given(plans())
-def test_the_checker_never_rejects_a_plan_that_runs(plan: str) -> None:
+@given(straight_plans())
+def test_a_straight_plan_that_runs_is_never_refused(plan: str) -> None:
     if run_error(plan) is None:
         assert static_errors(plan) == []
+
+
+@given(straight_plans())
+def test_a_reported_statement_fails_when_it_runs(plan: str) -> None:
+    # Every statement runs in order until one fails, so the run stops at the
+    # first reported statement or before it.
+    errors = static_errors(plan)
+    if errors:
+        failure = run_error(plan)
+        assert failure is not None
+        assert failure[1] is not None
+        assert failure[1] <= errors[0][1]  # type: ignore[operator]

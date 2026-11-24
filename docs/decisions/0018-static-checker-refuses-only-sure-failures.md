@@ -1,4 +1,4 @@
-# 18. The static checker refuses only what would fail whatever the data
+# 18. The static checker reports only statements that fail whatever the data
 
 - **Status:** accepted
 - **Date:** 2026-11-24
@@ -10,12 +10,12 @@ Cheap planners write plans that fail at run time (contribution D). A failure fou
 
 ## Decision
 
-`taintwall.tools.check_plan(plan, specs)` (also `Registry.check`) reads a parsed plan against the tool specs and reports, as typed `PlanError`s with the codes and details a run would give, every statement that cannot succeed: an unknown tool or name, a call whose arguments cannot bind or whose value cannot have the parameter's type, a field a closed record type lacks, a field read on a value that is never a record, a loop over a value that is never a tuple, a tool or builtin name used as a variable, `x += 1` before any `x = ...`. All errors are reported at once, in line order, at most 20.
+`taintwall.tools.check_plan(plan, specs)` (also `Registry.check`) reads a parsed plan against the tool specs and reports, as typed `PlanError`s with the codes and details a run would give, every statement that cannot succeed: an unknown tool, a name read before anything binds it (in plan order; a binding in an enclosing loop counts), a call whose arguments cannot bind or whose value cannot have the parameter's type, a field a closed record type lacks, a field, index, method or loop a value cannot take, a record or tuple in an f-string, a tool or builtin name used as a variable. All errors are reported at once, in line order, at most 20; a part that fails makes its expression unknown, so one mistake is reported once.
 
-Types are inferred flow-insensitively: each variable has the join of everything assigned to it, constants keep their value, and anything unclear is `object`. A check fails only when no value with what is known could pass (`may_fit`), so the checker never refuses a plan that would run; a property test on generated plans checks exactly that. A call in a branch that never runs is still reported: it is wrong code.
+Types are inferred flow-insensitively: each variable has the join of everything assigned to it, constants keep their value, and anything unclear is `object`. A check fails only when no value with what is known could pass (`may_fit`). The guarantee is that every reported statement fails whenever it runs. A statement in a branch that does not run is still reported (it is wrong code), so a plan can run and still be refused for such a branch; a straight-line plan that runs is never refused, and on one that fails the run stops at the first reported statement or before it (property tests on generated plans). When a statement has two sure failures, the run reports the one it reaches first, which may be the other.
 
 The checker also lists every tool call site with the tool's effects, and their union.
 
 ## Consequences
 
-The checker is the first loop of the typed retry (PR 4) and the source of the plan-level approval summary. Over the 91 plans the language accepts from the planner study, it finds 3 sure failures (`float` as a value, a reader schema written as a list, a loop over a string): the language already stops most mistakes, so the value of the checker is cheap, safe feedback, not volume. Flow-insensitive inference misses a mistake hidden behind a reassignment; a flow-sensitive checker can come later if retries show the need.
+The checker is the first loop of the typed retry (PR 4) and the source of the plan-level approval summary. Over the 91 plans the language accepts from the planner study, it stops 18: 16 format a record or tuple in an f-string (most often the dict `send_money` returns), the others use `float` as a value, loop over a string, or pass a reader schema as a list (against the reader as the study prompt states it). The planner prompt should say that only atoms can be formatted. Flow-insensitive inference misses a mistake hidden behind a reassignment; a flow-sensitive checker can come later if retries show the need.

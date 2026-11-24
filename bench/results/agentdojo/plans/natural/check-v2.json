@@ -16,14 +16,17 @@
     "google/gemini-3.1-flash-lite": {
       "plans": 16,
       "accepted": 12,
-      "checked": 12,
-      "codes": {}
+      "checked": 11,
+      "codes": {
+        "type_mismatch": 1
+      }
     },
     "meta-llama/llama-4-scout": {
       "plans": 16,
       "accepted": 6,
-      "checked": 5,
+      "checked": 4,
       "codes": {
+        "type_mismatch": 2,
         "unknown_name": 1
       }
     },

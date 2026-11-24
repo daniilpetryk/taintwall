@@ -60,7 +60,7 @@ def counts(plans: list[dict[str, object]], specs: Mapping[str, ToolSpec]) -> dic
             continue
         try:
             parsed = parse_plan(code)
-        except (PlanError, SyntaxError):
+        except PlanError:
             continue
         accepted += 1
         result = check_plan(parsed, specs)

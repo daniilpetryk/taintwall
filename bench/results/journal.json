@@ -680,10 +680,10 @@
       ],
       "commit": "",
       "title": "Static plan checker",
-      "changed": "Before a plan runs, the checker reads it against the tool specs and reports every statement that would fail whatever the data: unknown tools and names, arguments that do not fit, fields a record type lacks, loops over a non-tuple, a tool's name reused. Errors are typed codes from the plan text only; it also lists every call with its effects, for one approval per plan.",
+      "changed": "Before a plan runs, the checker reads it against the tool specs and reports every statement that would fail whatever the data: unknown tools, names read before anything binds them, arguments that do not fit, fields a record type lacks, indexes, methods, loops and f-string parts a value cannot take, a tool's name reused. Errors are typed codes from the plan text only; it also lists every call with its effects, for one approval per plan.",
       "question": "Of the plans the language accepts, how many does the checker still stop, and are those real mistakes?",
-      "result": "3 of the 91 accepted plans of the study (natural and rules runs together): `float` used as a value, a reader schema written as a list, a loop over a string. Each would have failed at run time; no plan that runs is refused (a property test checks this on generated plans).",
-      "decision": "Ship the checker as the first loop of the typed retry (PR 4): it is cheap and safe, but on these plans the language already stops most mistakes. What the plans get wrong at run time, with data, is what PR 5 measures.",
+      "result": "18 of the 91 accepted plans of the study (natural and rules runs together) have a statement that cannot succeed. 16 format a record or a tuple in an f-string, most often the dict `send_money` returns (`f\"... Result: {result}\"`); the others use `float` as a value, loop over a string, or pass a reader schema as a list (refused against the reader as the study prompt states it). A straight-line plan that runs is never refused (property tests on generated plans).",
+      "decision": "Ship the checker as the first loop of the typed retry (PR 4): its errors are safe to show and cover one plan in five here. The planner prompt should say that only atoms can be formatted. What the plans get wrong at run time, with data, is what PR 5 measures.",
       "cost_usd": 0.0,
       "measurements": [
         {
