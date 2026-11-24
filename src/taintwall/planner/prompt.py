@@ -96,21 +96,49 @@ def request(text: str) -> str:
     return f"Request: {text}"
 
 
-def static_retry(text: str, source: str, errors: Sequence[PlanError]) -> str:
-    """The request again, the program that cannot run, and why, in typed terms."""
+HISTORY: Final = 3
+"""How many attempts before the last one a retry recalls, by their errors only."""
+
+
+def static_retry(
+    text: str,
+    source: str,
+    errors: Sequence[PlanError],
+    earlier: Sequence[Sequence[PlanError]] = (),
+) -> str:
+    """The request again, the program that cannot run, and why, in typed terms.
+
+    ``earlier`` holds the errors of the attempts before it, oldest first, so a
+    planner that goes back to an old mistake is told so.
+    """
     return (
         f"{request(text)}\n\nYour previous program:\n<program>\n{source}\n</program>\n\n"
-        f"It cannot run as written:\n{_errors(errors)}\n\nWrite the whole program again."
+        f"It cannot run as written:\n{_errors(errors)}{_earlier(earlier)}\n\n"
+        "Write the whole program again."
     )
 
 
-def runtime_retry(text: str, source: str, error: PlanError) -> str:
+def runtime_retry(
+    text: str,
+    source: str,
+    error: PlanError,
+    earlier: Sequence[Sequence[PlanError]] = (),
+) -> str:
     """The request again, the program that stopped, and where; nothing it read."""
     return (
         f"{request(text)}\n\nYour previous program:\n<program>\n{source}\n</program>\n\n"
-        f"It stopped while running, before it changed anything:\n{_errors([error])}\n\n"
-        "Write the whole program again."
+        f"It stopped while running, before it changed anything:\n{_errors([error])}"
+        f"{_earlier(earlier)}\n\nWrite the whole program again."
     )
+
+
+def _earlier(earlier: Sequence[Sequence[PlanError]]) -> str:
+    """The last ``HISTORY`` earlier attempts' errors, or nothing on a first retry."""
+    shown = earlier[-HISTORY:]
+    if not shown:
+        return ""
+    blocks = "\n".join(_errors(errors) for errors in shown)
+    return f"\n\nThe programs before it failed with:\n{blocks}"
 
 
 def _errors(errors: Sequence[PlanError]) -> str:

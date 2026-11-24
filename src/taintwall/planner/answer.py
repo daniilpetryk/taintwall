@@ -23,6 +23,13 @@ SPEC: Final = ToolSpec(
 )
 
 
+class ReservedToolError(ValueError):
+    """A tool given to the planner takes the name of the planner's own tool."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"{name!r} is the planner's own tool; rename this one")
+
+
 def answer_tool() -> tuple[ToolSpec, Implementation, list[str]]:
     """The tool, its implementation, and the list it appends every answer to."""
     said: list[str] = []

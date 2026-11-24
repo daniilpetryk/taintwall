@@ -29,7 +29,7 @@ from taintwall.core.plan import Plan, parse_plan
 from taintwall.llm import LLMClient, LLMError, StructuredReply, StructuredRequest, Usage
 from taintwall.planner import prompt
 from taintwall.planner.answer import NAME as ANSWER
-from taintwall.planner.answer import answer_tool
+from taintwall.planner.answer import ReservedToolError, answer_tool
 from taintwall.planner.prompt import READER_TOOL as READER
 from taintwall.tools import CallLog, CallRecord, Implementation, Registry, ToolSpec
 
@@ -95,15 +95,25 @@ class Outcome:
 
     @property
     def completed(self) -> bool:
-        """Whether a program ran to the end."""
+        """Whether a program ran to the end, answering or not."""
         return self.failure is None
+
+    @property
+    def answered(self) -> bool:
+        """Whether a program ran to the end and told the user something."""
+        return self.completed and bool(self.answers)
 
 
 PLAN_FIELD: Final = "plan"
 
 
 class Planner:
-    """Plans and runs requests with these tools, ``answer`` added."""
+    """Plans and runs requests with these tools, ``answer`` added.
+
+    Raises (from ``run``):
+        ReservedToolError: a tool is named ``answer``, the planner's own.
+        DuplicateToolError: two tools share a name.
+    """
 
     def __init__(
         self,
@@ -138,7 +148,7 @@ class Planner:
                 if run.static >= self._replan.static_retries:
                     return run.end("static")
                 run.static += 1
-                run.user = prompt.static_retry(request, source, errors)
+                run.user = prompt.static_retry(request, source, errors, run.earlier())
                 continue
             interpreter, run.log = run.registry.interpreter(
                 policies=self._policies, log=run.log, **options
@@ -146,13 +156,16 @@ class Planner:
             try:
                 result = interpreter.run(plan)
             except LabeledPlanError as err:
-                run.attempts.append(Attempt(source, "run", (err,), err.label))
+                # A fresh error: the raised one holds the interpreter's frames,
+                # and with them the values the plan read, in its traceback.
+                clean = LabeledPlanError(err, err.label)
+                run.attempts.append(Attempt(source, "run", (clean,), err.label))
                 if run.log.effects_happened:
                     return run.end("effects")
                 if run.runtime >= self._replan.runtime_retries:
                     return run.end("runtime")
                 run.runtime += 1
-                run.user = prompt.runtime_retry(request, source, err)
+                run.user = prompt.runtime_retry(request, source, clean, run.earlier())
                 continue
             return run.end(None, result)
 
@@ -204,6 +217,8 @@ class _Run:
     """One request: its tools, what it has tried and spent, the call log of its attempts."""
 
     def __init__(self, request: str, tools: Sequence[tuple[ToolSpec, Implementation]]) -> None:
+        if any(spec.name == ANSWER for spec, _ in tools):
+            raise ReservedToolError(ANSWER)
         spec, run_answer, self.said = answer_tool()
         self.registry = Registry([*tools, (spec, run_answer)])
         self.system = prompt.system(
@@ -216,6 +231,10 @@ class _Run:
         self.static = 0
         self.runtime = 0
         self.usage = Usage()
+
+    def earlier(self) -> list[tuple[PlanError, ...]]:
+        """The errors of every attempt before the last."""
+        return [attempt.errors for attempt in self.attempts[:-1]]
 
     def add(self, usage: Usage) -> None:
         self.usage = Usage(

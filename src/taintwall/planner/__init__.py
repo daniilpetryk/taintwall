@@ -8,7 +8,7 @@ Modules, from the entry point down (``pyproject.toml`` enforces the order):
 * ``prompt | answer``: what the planner reads | the ``answer`` tool.
 """
 
-from taintwall.planner.answer import answer_tool
+from taintwall.planner.answer import ReservedToolError, answer_tool
 from taintwall.planner.loop import (
     Answer,
     Attempt,
@@ -32,6 +32,7 @@ __all__ = [
     "Planner",
     "PlannerModel",
     "Replan",
+    "ReservedToolError",
     "answer_tool",
     "rules",
 ]

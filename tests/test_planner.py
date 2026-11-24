@@ -17,10 +17,26 @@ from taintwall.llm import (
     Usage,
     supported,
 )
-from taintwall.planner import PLAN_SCHEMA, Outcome, Planner, PlannerModel, Replan, rules
-from taintwall.planner.prompt import runtime_retry, static_retry, system
+from taintwall.planner import (
+    PLAN_SCHEMA,
+    Outcome,
+    Planner,
+    PlannerModel,
+    Replan,
+    ReservedToolError,
+    rules,
+)
+from taintwall.planner.prompt import HISTORY, runtime_retry, static_retry, system
 from taintwall.reader import ENOUGH, reader
-from taintwall.tools import READ_ONLY, Effects, Implementation, Param, Scalar, ToolSpec
+from taintwall.tools import (
+    READ_ONLY,
+    DuplicateToolError,
+    Effects,
+    Implementation,
+    Param,
+    Scalar,
+    ToolSpec,
+)
 
 MINT = Mint()
 MODEL = PlannerModel("m/planner", reasoning_effort="low", max_tokens=1000)
@@ -298,3 +314,71 @@ def test_the_reader_is_mentioned_only_when_it_is_there() -> None:
     assert "you cannot see. When the program is done" in model.requests[0].system
     assert "query_reader" in system("functions", has_reader=True)
     assert "plain ASCII" in rules()
+
+
+def test_a_retry_recalls_the_errors_of_earlier_attempts() -> None:
+    def error(n: int) -> list[PlanError]:
+        return [PlanError(PlanErrorCode.UNKNOWN_NAME, n, f"v{n}")]
+
+    assert "before it" not in static_retry("Pay.", "x", error(1))
+    earlier = [error(n) for n in range(1, HISTORY + 2)]
+    text = static_retry("Pay.", "x = 1", error(9), earlier)
+    assert text.endswith(
+        "It cannot run as written:\n- line 9: unknown_name (v9)\n\n"
+        "The programs before it failed with:\n"
+        + "\n".join(f"- line {n}: unknown_name (v{n})" for n in range(2, HISTORY + 2))
+        + "\n\nWrite the whole program again."
+    )
+    assert HISTORY == 3
+    stopped = runtime_retry(
+        "Pay.", "x", PlanError(PlanErrorCode.TOOL_FAILED, 1, "note"), [error(4)]
+    )
+    assert stopped.endswith(
+        "- line 1: tool_failed (note)\n\nThe programs before it failed with:\n"
+        "- line 4: unknown_name (v4)\n\nWrite the whole program again."
+    )
+
+
+def test_the_loop_passes_earlier_attempts_to_each_retry() -> None:
+    model = FakePlanner("b = saldo()", "x = y", "x = broken()", GOOD)
+    outcome = plan(model, replan=Replan(static_retries=2, runtime_retries=1))
+    assert outcome.answered
+    assert "before it" not in model.requests[1].user
+    assert model.requests[2].user.endswith(
+        "- line 1: unknown_name (y)\n\nThe programs before it failed with:\n"
+        "- line 1: unknown_tool (saldo)\n\nWrite the whole program again."
+    )
+    assert model.requests[3].user.endswith(
+        "- line 1: tool_failed (broken)\n\nThe programs before it failed with:\n"
+        "- line 1: unknown_tool (saldo)\n- line 1: unknown_name (y)\n\n"
+        "Write the whole program again."
+    )
+
+
+def test_a_runtime_error_is_kept_without_the_frames_that_read_data() -> None:
+    outcome = plan(FakePlanner("x = broken()", GOOD))
+    (error,) = outcome.attempts[0].errors
+    assert (error.code, error.line, error.detail) == (PlanErrorCode.TOOL_FAILED, 1, "broken")
+    assert (error.__traceback__, error.__context__, error.__cause__) == (None, None, None)
+    assert getattr(error, "label", None) == outcome.attempts[0].label
+
+
+def test_answered_needs_a_finished_program_that_told_the_user() -> None:
+    assert plan(FakePlanner(GOOD)).answered
+    silent = plan(FakePlanner("b = balance()"))
+    assert (silent.completed, silent.answered) == (True, False)
+    assert not plan(FakePlanner("x = y"), replan=Replan(0, 0)).answered
+    cut = plan(FakePlanner("answer('so far')\nx = broken()"))
+    assert (cut.failure, len(cut.answers), cut.answered) == ("effects", 1, False)
+
+
+def test_answer_is_reserved_for_the_planner() -> None:
+    own = ToolSpec("answer", "A.", (), Scalar.NONE, READ_ONLY)
+    planner = Planner(FakePlanner(GOOD), MODEL, lambda: [*tools(), (own, lambda: None)])
+    with pytest.raises(ReservedToolError, match="'answer' is the planner's own tool"):
+        planner.run("Hi.", requester=MINT.owner(), mint=MINT)
+    twice = tools()[:1] * 2
+    with pytest.raises(DuplicateToolError):
+        Planner(FakePlanner(GOOD), MODEL, lambda: twice).run(
+            "Hi.", requester=MINT.owner(), mint=MINT
+        )
