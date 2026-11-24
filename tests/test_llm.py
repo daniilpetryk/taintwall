@@ -124,6 +124,13 @@ class TestOpenRouter:
             OpenRouterClient("k", Recorder(200, response("{}", usage=[]))).structured(REQUEST).usage
             == Usage()
         )
+        details: dict[str, object] = {"prompt_tokens_details": {}}
+        assert (
+            OpenRouterClient("k", Recorder(200, response("{}", usage=details)))
+            .structured(REQUEST)
+            .usage
+            == Usage()
+        )
         assert OpenRouterClient("k", Recorder(200, response("{}", usage={"cost": 2}))).structured(
             REQUEST
         ).usage == Usage(cost=2.0)
@@ -185,6 +192,8 @@ class TestOpenRouter:
         assert read_key(env) == "sk-or-1"
         env.write_text("export OPENROUTER_API_KEY=sk-or-2\n", encoding="utf-8")
         assert read_key(env) == "sk-or-2"
+        env.write_text('OPENROUTER_API_KEY="sk=or=X" # a # b\n', encoding="utf-8")
+        assert read_key(env) == "sk=or=X"
         env.write_text("OPENROUTER_API_KEY=\nX=OPENROUTER_API_KEY\n", encoding="utf-8")
         with pytest.raises(MissingKeyError) as err:
             read_key(env)
@@ -295,6 +304,23 @@ class TestCache:
         assert reply == StructuredReply({"a": "s", "n": 1})
         assert len(transport.calls) == 1
 
+    def test_only_an_object_comes_from_the_cache(self, tmp_path: Path) -> None:
+        request = dataclasses.replace(
+            REQUEST, schema={"type": "array", "items": {"type": "integer"}}
+        )
+        directory = tmp_path / "c"
+        directory.mkdir()
+        (directory / f"{key(request)}.json").write_text("[1]", encoding="utf-8")
+        transport = Recorder(200, response("{}"))
+        with pytest.raises(MalformedReplyError):
+            CachedClient(OpenRouterClient("k", transport), directory).structured(request)
+        assert len(transport.calls) == 1
+
+    def test_the_key_does_not_depend_on_key_order(self) -> None:
+        one = dataclasses.replace(REQUEST, schema={"a": 1, "b": 2})
+        other = dataclasses.replace(REQUEST, schema={"b": 2, "a": 1})
+        assert key(one) == key(other)
+
     def test_a_failed_call_is_not_cached(self, tmp_path: Path) -> None:
         client = CachedClient(OpenRouterClient("k", Recorder(500, b"")), tmp_path / "c")
         with pytest.raises(ProviderError):
@@ -354,6 +380,16 @@ class TestSchemaAndFailures:
         assert not conforms({"a": "x"}, schema)
         assert not conforms("x", schema)
 
+    def test_every_allowed_keyword_is_known(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+            "items": {},
+        }
+        assert conforms({}, schema)
+
     def test_open_objects_take_more_keys(self) -> None:
         assert conforms({"b": 1}, {"type": "object"})
         assert conforms({"b": 1}, {"type": "object", "additionalProperties": True})
@@ -390,6 +426,10 @@ class TestBudget:
             budget.structured(REQUEST)
         assert str(err.value) == "m/x: budget exceeded, no further calls"
         assert len(transport.calls) == 3
+        exact = BudgetedClient(OpenRouterClient("k", transport), max_calls=5, max_cost=0.4)
+        exact.structured(REQUEST)
+        with pytest.raises(BudgetExceededError):
+            exact.structured(REQUEST)
         few = BudgetedClient(OpenRouterClient("k", transport), max_calls=1, max_cost=10.0)
         few.structured(REQUEST)
         with pytest.raises(BudgetExceededError):

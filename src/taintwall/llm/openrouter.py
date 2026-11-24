@@ -56,10 +56,11 @@ def read_key(env_file: Path) -> str:
     Raises:
         MissingKeyError: the file has no such key, or it is empty.
     """
-    for line in env_file.read_text(encoding="utf-8").splitlines():
+    text = env_file.read_text(encoding="utf-8")  # pragma: no mutate - the default here
+    for line in text.splitlines():
         name, sep, value = line.strip().removeprefix("export ").partition("=")
         if sep and name.strip() == "OPENROUTER_API_KEY":
-            key = value.split(" #", 1)[0].strip().strip("'\"")
+            key = value.partition(" #")[0].strip().strip("'\"")
             if key:
                 return key
     raise MissingKeyError(env_file)
@@ -67,9 +68,11 @@ def read_key(env_file: Path) -> str:
 
 def urllib_transport(url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
     """POST with the standard library; an HTTP error is a status, not an exception."""
-    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")  # noqa: S310 - fixed https URL
+    # POST and the timeout are what urllib would pick here; stated so they stay.
+    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")  # noqa: S310  # pragma: no mutate
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - fixed https URL
+        # Without the timeout a stalled provider would hang the run; tests cannot wait it out.
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310  # pragma: no mutate
             return int(response.status), response.read()
     except urllib.error.HTTPError as err:
         err.close()
@@ -193,9 +196,9 @@ def _json(content: object) -> object:
         return _NOT_JSON
 
 
-def _no_constant(name: str) -> object:
+def _no_constant(_name: str) -> object:
     """``NaN`` and ``Infinity`` are not JSON: a reply that has them is malformed."""
-    raise ValueError(name)
+    raise ValueError
 
 
 def _usage(usage: object) -> Usage:

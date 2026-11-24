@@ -27,7 +27,7 @@ from taintwall.llm.conform import conforms
 
 def key(request: StructuredRequest) -> str:
     """The request's hash: every field, canonically ordered."""
-    canonical = json.dumps(dataclasses.asdict(request), sort_keys=True, ensure_ascii=True)
+    canonical = json.dumps(dataclasses.asdict(request), sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -37,7 +37,8 @@ class CachedClient:
     def __init__(self, inner: LLMClient, directory: Path) -> None:
         self._inner = inner
         self._directory = directory
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Created private, then made private if it already existed.
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)  # pragma: no mutate - see chmod
         directory.chmod(0o700)
 
     def structured(self, request: StructuredRequest) -> StructuredReply:
@@ -47,13 +48,14 @@ class CachedClient:
         if value is not None and conforms(value, request.schema):
             return StructuredReply(value, cached=True)
         reply = self._inner.structured(request)
-        _write_atomic(path, json.dumps(reply.value, sort_keys=True))
+        _write_atomic(path, json.dumps(reply.value))
         return reply
 
 
 def _read(path: Path) -> dict[str, object] | None:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")  # pragma: no mutate - the default here
+        value = json.loads(text)
     except (FileNotFoundError, ValueError, UnicodeDecodeError):
         return None
     return value if isinstance(value, dict) else None
@@ -65,7 +67,8 @@ def _write_atomic(path: Path, text: str) -> None:
     try:
         # Created 0o600: never readable by others, not even for a moment.
         descriptor = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+        file = os.fdopen(descriptor, "w", encoding="utf-8")  # pragma: no mutate - the default
+        with file:
             file.write(text)
         partial.replace(path)
     finally:

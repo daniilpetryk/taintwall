@@ -224,7 +224,9 @@ def prompt(question: str, data: object) -> str:
 
 def fenced(value: object) -> str:
     """``value`` as JSON, angle brackets and their kin escaped: it cannot close a fence."""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True).translate(_ANGLES)
+    # A mutant passing None for ensure_ascii is this same call (None is false).
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True)  # pragma: no mutate
+    return text.translate(_ANGLES)
 
 
 def check_reply(reply: dict[str, object], types: RecordOf) -> dict[str, object]:
