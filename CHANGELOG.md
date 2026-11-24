@@ -39,7 +39,7 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   arguments that do not fit, missing fields, indexes, methods, loops and
   f-string parts a value cannot take), as typed errors from the plan text
   only, and every call with its effects. Over the study's 91 accepted plans it
-  stops 18, most for formatting a tool's record in an f-string (#31).
+  stops 18, most for formatting a tool's record in an f-string (#36).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
