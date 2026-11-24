@@ -17,6 +17,9 @@ from taintwall.core.errors import PlanError
 from taintwall.core.interpreter import BUILTINS
 from taintwall.core.syntax import STRING_METHODS
 
+READER_TOOL: Final = "query_reader"
+"""The reader's tool name: the prompt mentions it only when it is there."""
+
 PLAN_SCHEMA: Final = {
     "type": "object",
     "properties": {
@@ -56,7 +59,8 @@ The program runs in a restricted Python subset. Use only:
 Only text, numbers, booleans and `None` can be formatted in an f-string or
 passed to `str()`: format a record's fields, not the record. Not allowed:
 imports, `def`, `class`, `lambda`, comprehensions, other methods, slices,
-`x[i] = v`, `try`, `**`, and names starting with `_`. Values cannot be
+`x[i] = v`, `try`, `**`, names starting with `_`, and names that are not
+plain ASCII. Values cannot be
 changed in place: build a new tuple with `items = items + (x,)`."""
 
 
@@ -65,9 +69,8 @@ You are the planner of an assistant. You never see the user's data: you write
 a Python program that completes the user's request, and a runtime executes it.
 
 Call the functions below to read and change things. Their results are data
-you cannot see. When you need information from unstructured data (the text of
-a file, an email), pass it to `query_reader` with the fields you need. When
-the program is done, call `answer(text)` with what to tell the user.
+you cannot see.{reader} When the program is done, call `answer(text)` with
+what to tell the user.
 
 Reply with a JSON object whose "plan" is the program's source.
 
@@ -79,9 +82,13 @@ Functions:
 """
 
 
-def system(functions: str) -> str:
+READER: Final = """ When you need information from unstructured data (the text
+of a file, an email), pass it to `query_reader` with the fields you need."""
+
+
+def system(functions: str, *, has_reader: bool) -> str:
     """The planner's system prompt, for the tools that ``functions`` describes."""
-    return SYSTEM.format(rules=rules(), functions=functions)
+    return SYSTEM.format(reader=READER if has_reader else "", rules=rules(), functions=functions)
 
 
 def request(text: str) -> str:

@@ -147,7 +147,7 @@ class OpenRouterClient:
             raise ProviderError(request.model, status)
         reply = parse(request.model, raw)
         if not conforms(dict(reply.value), request.schema):
-            raise MalformedReplyError(request.model, "not of the schema")
+            raise MalformedReplyError(request.model, "not of the schema", reply.usage)
         return reply
 
 
@@ -208,15 +208,16 @@ def parse(model: str, raw: bytes) -> StructuredReply:
     found = _choice(raw)
     if found is None:
         raise MalformedReplyError(model, "response")
-    finish, content, usage = found
+    finish, content, reported = found
+    usage = _usage(reported)
     if finish == "length":
-        raise TruncatedError(model)
+        raise TruncatedError(model, usage)
     value = _json(content)
     if value is _NOT_JSON:
-        raise MalformedReplyError(model, "not JSON")
+        raise MalformedReplyError(model, "not JSON", usage)
     if not isinstance(value, dict):
-        raise MalformedReplyError(model, "not an object")
-    return StructuredReply(value, _usage(usage))
+        raise MalformedReplyError(model, "not an object", usage)
+    return StructuredReply(value, usage)
 
 
 _NOT_JSON: Final = object()

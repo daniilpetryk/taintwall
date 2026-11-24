@@ -19,17 +19,18 @@ run: the budget is the model's (``PlannerModel``), not the loop's.
 
 import dataclasses
 import textwrap
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Final, Literal, Unpack
 
 from taintwall.core.errors import PlanError
 from taintwall.core.interpreter import CallHook, InterpreterOptions, LabeledPlanError, RunResult
 from taintwall.core.labels import Label
 from taintwall.core.plan import Plan, parse_plan
-from taintwall.llm import LLMClient, LLMError, StructuredRequest, Usage
+from taintwall.llm import LLMClient, LLMError, StructuredReply, StructuredRequest, Usage
 from taintwall.planner import prompt
 from taintwall.planner.answer import NAME as ANSWER
 from taintwall.planner.answer import answer_tool
+from taintwall.planner.prompt import READER_TOOL as READER
 from taintwall.tools import CallLog, CallRecord, Implementation, Registry, ToolSpec
 
 type Phase = Literal["parse", "check", "run"]
@@ -41,10 +42,11 @@ class PlannerModel:
     """The P-LLM and what it may spend per reply."""
 
     name: str
+    reasoning_effort: str | None
+    """``"medium"`` for a reasoning model (the P-LLM's effort in design.md);
+    ``None`` for one that takes no such parameter, which would refuse it."""
     max_tokens: int = 8000
     """Reasoning included: the planner study saw 2000 cut 15 of 160 replies."""
-    reasoning_effort: str | None = "medium"
-    """``None`` for a model that takes no reasoning parameter."""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -84,6 +86,8 @@ class Outcome:
     """The last run's variables and trace, if a program ran to the end."""
     failure: Failure | None
     """``None`` when a program ran to the end."""
+    planner_error: LLMError | None
+    """Why the planner's model gave no program, when ``failure`` is ``"planner"``."""
     effects_happened: bool
     calls: tuple[CallRecord, ...]
     """Every tool call of every attempt, in order: the shared call log's records."""
@@ -105,20 +109,24 @@ class Planner:
         self,
         client: LLMClient,
         model: PlannerModel,
-        tools: Iterable[tuple[ToolSpec, Implementation]],
+        tools: Callable[[], Iterable[tuple[ToolSpec, Implementation]]],
         *,
         replan: Replan = Replan(),  # noqa: B008 - a frozen dataclass
         policies: Sequence[CallHook] = (),
     ) -> None:
         self._client = client
         self._model = model
-        self._tools = tuple(tools)
+        self._tools = tools
         self._replan = replan
         self._policies = tuple(policies)
 
     def run(self, request: str, **options: Unpack[InterpreterOptions]) -> Outcome:
-        """Plan ``request``, check it, run it, and retry within the bounds."""
-        run = _Run(request, self._tools)
+        """Plan ``request``, check it, run it, and retry within the bounds.
+
+        ``tools`` is called once per run: a tool may hold state for one request
+        (the reader's call budget, a benchmark task's environment).
+        """
+        run = _Run(request, tuple(self._tools()))
         while True:
             source = self._ask(run)
             if source is None:
@@ -160,19 +168,18 @@ class Planner:
             reasoning_effort=self._model.reasoning_effort,
         )
         reply = _ask(self._client, request)
-        if reply is None:
+        run.add(reply.usage)
+        if isinstance(reply, LLMError):
+            run.error = reply
             return None
-        value, usage = reply
-        run.add(usage)
-        return _strip_fence(str(value[PLAN_FIELD]))
+        return _strip_fence(str(reply.value[PLAN_FIELD]))
 
 
-def _ask(client: LLMClient, request: StructuredRequest) -> tuple[dict[str, object], Usage] | None:
+def _ask(client: LLMClient, request: StructuredRequest) -> StructuredReply | LLMError:
     try:
-        reply = client.structured(request)
-    except LLMError:
-        return None
-    return dict(reply.value), reply.usage
+        return client.structured(request)
+    except LLMError as err:
+        return err
 
 
 def _check(source: str, registry: Registry) -> Plan | tuple[Phase, tuple[PlanError, ...]]:
@@ -199,7 +206,10 @@ class _Run:
     def __init__(self, request: str, tools: Sequence[tuple[ToolSpec, Implementation]]) -> None:
         spec, run_answer, self.said = answer_tool()
         self.registry = Registry([*tools, (spec, run_answer)])
-        self.system = prompt.system(self.registry.describe())
+        self.system = prompt.system(
+            self.registry.describe(), has_reader=READER in self.registry.specs
+        )
+        self.error: LLMError | None = None
         self.user = prompt.request(request)
         self.log: CallLog | None = None
         self.attempts: list[Attempt] = []
@@ -229,6 +239,7 @@ class _Run:
             answers=answers,
             result=result,
             failure=failure,
+            planner_error=self.error,
             effects_happened=log is not None and log.effects_happened,
             calls=() if log is None else log.records,
             usage=self.usage,

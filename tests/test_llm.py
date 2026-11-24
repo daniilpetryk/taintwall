@@ -20,6 +20,7 @@ from taintwall.llm import (
     BudgetedClient,
     BudgetExceededError,
     CachedClient,
+    LLMError,
     MalformedReplyError,
     MissingKeyError,
     OpenRouterClient,
@@ -185,11 +186,12 @@ class TestOpenRouter:
         ],
     )
     def test_failures_are_typed_and_never_quote_the_reply(
-        self, status: int, raw: bytes, error: type[Exception], message: str
+        self, status: int, raw: bytes, error: type[LLMError], message: str
     ) -> None:
         with pytest.raises(error) as err:
             OpenRouterClient("sk-secret", Recorder(status, raw)).structured(REQUEST)
         assert str(err.value) == message
+        assert err.value.usage == Usage()
         assert err.value.__cause__ is None
 
     def test_the_key_comes_from_the_env_file_only(
@@ -626,3 +628,15 @@ def test_a_retry_after_lengthens_the_wait(
     with pytest.raises(ProviderError):
         OpenRouterClient("k", Flaky(429, retry_after=asked)).structured(REQUEST)
     assert no_waiting == waits
+
+
+def test_a_billed_failure_carries_its_usage() -> None:
+    usage = {"prompt_tokens": 3, "completion_tokens": 9, "cost": 0.5}
+    for raw in (response("{}", finish="length", usage=usage), response("[1]", usage=usage)):
+        with pytest.raises(LLMError) as err:
+            OpenRouterClient("k", Recorder(200, raw)).structured(REQUEST)
+        assert err.value.usage == Usage(3, 9, 0, 0.5)
+    strict = dataclasses.replace(REQUEST, schema={"type": "object", "required": ["a"]})
+    with pytest.raises(MalformedReplyError) as off:
+        OpenRouterClient("k", Recorder(200, response("{}", usage=usage))).structured(strict)
+    assert off.value.usage == Usage(3, 9, 0, 0.5)
