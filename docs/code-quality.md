@@ -79,7 +79,9 @@ taintwall.core.interpreter
 
 taintwall.tools
   registry                        specs with implementations; interpreter tools; a call log per run
-  calls                           the hook: argument checks and call records before a tool runs
+  check | calls                   static checker: sure failures, calls, effects | the hook: argument checks and call records
+  signatures | scope              what builtins and methods take | which reads come before any binding
+  infer                           what a plan's values can be, without running it
   spec                            parameters, result, effects, readers, signature
   values | schema                 plan values to Python and back | parameter and result types
 

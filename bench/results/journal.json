@@ -178,6 +178,18 @@
       "group": "Planner study: plans accepted (banking)",
       "better": "higher",
       "help": "Share of plans the plan language accepts. Higher is better."
+    },
+    "plans.banking.checked.natural": {
+      "label": "No rules in prompt",
+      "group": "Planner study: plans that also pass the checker (banking)",
+      "better": "higher",
+      "help": "Share of plans the plan language accepts and the static checker passes. Higher is better."
+    },
+    "plans.banking.checked.rules": {
+      "label": "Rules in prompt",
+      "group": "Planner study: plans that also pass the checker (banking)",
+      "better": "higher",
+      "help": "Share of plans the plan language accepts and the static checker passes. Higher is better."
     }
   },
   "series_colors": [
@@ -651,6 +663,138 @@
             "model": "openai/gpt-5-mini",
             "key": "accepted"
           }
+        }
+      ]
+    },
+    {
+      "id": "plan-checker",
+      "date": "2026-11-24",
+      "stage": "2",
+      "release": "Unreleased",
+      "decisions": [
+        "0018"
+      ],
+      "kind": "change",
+      "prs": [
+        36
+      ],
+      "commit": "",
+      "title": "Static plan checker",
+      "changed": "Before a plan runs, the checker reads it against the tool specs and reports every statement that would fail whatever the data: unknown tools, names read before anything binds them, arguments that do not fit a tool, builtin or method, fields a record type lacks, indexes, loops and f-string parts a value cannot take, a tool's name reused. Errors are typed codes from the plan text only; it also lists every call with its effects and its constant arguments, for one approval per plan.",
+      "question": "Of the plans the language accepts, how many does the checker still stop, and are those real mistakes?",
+      "result": "21 of the 91 accepted plans of the study (natural and rules runs together) have a statement that cannot succeed. 16 format a record or a tuple in an f-string, most often the dict `send_money` returns (`f\"... Result: {result}\"`); 3 call `str()` on a list of transactions to hand it to the reader; one loops over a string and one passes a reader schema as a list (refused against the reader as the study prompt states it). A straight-line plan that runs is never refused (property tests on generated plans).",
+      "decision": "Ship the checker as the first loop of the typed retry (PR 4): its errors are safe to show and cover one plan in four here. The planner prompt should say that only atoms can be formatted or converted with `str()`, and that the reader takes records and tuples as they are. What the plans get wrong at run time, with data, is what PR 5 measures.",
+      "cost_usd": 0.0,
+      "measurements": [
+        {
+          "id": "checked-natural-haiku-5-5",
+          "metric": "plans.banking.checked.natural",
+          "series": "Haiku 5.5",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/check-v2.json",
+            "model": "anthropic/claude-haiku-5.5",
+            "key": "checked"
+          },
+          "compare_to": "plans-natural-v2-haiku-5-5"
+        },
+        {
+          "id": "checked-natural-deepseek-v3-2",
+          "metric": "plans.banking.checked.natural",
+          "series": "DeepSeek V3.2",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/check-v2.json",
+            "model": "deepseek/deepseek-v3.2",
+            "key": "checked"
+          },
+          "compare_to": "plans-natural-v2-deepseek-v3-2"
+        },
+        {
+          "id": "checked-natural-gemini-3-1-flash-lite",
+          "metric": "plans.banking.checked.natural",
+          "series": "Gemini 3.1 Flash Lite",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/check-v2.json",
+            "model": "google/gemini-3.1-flash-lite",
+            "key": "checked"
+          },
+          "compare_to": "plans-natural-v2-gemini-3-1-flash-lite"
+        },
+        {
+          "id": "checked-natural-llama-4-scout",
+          "metric": "plans.banking.checked.natural",
+          "series": "Llama 4 Scout",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/check-v2.json",
+            "model": "meta-llama/llama-4-scout",
+            "key": "checked"
+          },
+          "compare_to": "plans-natural-v2-llama-4-scout"
+        },
+        {
+          "id": "checked-natural-gpt-5-mini",
+          "metric": "plans.banking.checked.natural",
+          "series": "GPT-5 mini",
+          "source": {
+            "census": "bench/results/agentdojo/plans/natural/check-v2.json",
+            "model": "openai/gpt-5-mini",
+            "key": "checked"
+          },
+          "compare_to": "plans-natural-v2-gpt-5-mini"
+        },
+        {
+          "id": "checked-rules-haiku-5-5",
+          "metric": "plans.banking.checked.rules",
+          "series": "Haiku 5.5",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/check-v2.json",
+            "model": "anthropic/claude-haiku-5.5",
+            "key": "checked"
+          },
+          "compare_to": "plans-rules-v2-haiku-5-5"
+        },
+        {
+          "id": "checked-rules-deepseek-v3-2",
+          "metric": "plans.banking.checked.rules",
+          "series": "DeepSeek V3.2",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/check-v2.json",
+            "model": "deepseek/deepseek-v3.2",
+            "key": "checked"
+          },
+          "compare_to": "plans-rules-v2-deepseek-v3-2"
+        },
+        {
+          "id": "checked-rules-gemini-3-1-flash-lite",
+          "metric": "plans.banking.checked.rules",
+          "series": "Gemini 3.1 Flash Lite",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/check-v2.json",
+            "model": "google/gemini-3.1-flash-lite",
+            "key": "checked"
+          },
+          "compare_to": "plans-rules-v2-gemini-3-1-flash-lite"
+        },
+        {
+          "id": "checked-rules-llama-4-scout",
+          "metric": "plans.banking.checked.rules",
+          "series": "Llama 4 Scout",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/check-v2.json",
+            "model": "meta-llama/llama-4-scout",
+            "key": "checked"
+          },
+          "compare_to": "plans-rules-v2-llama-4-scout"
+        },
+        {
+          "id": "checked-rules-gpt-5-mini",
+          "metric": "plans.banking.checked.rules",
+          "series": "GPT-5 mini",
+          "source": {
+            "census": "bench/results/agentdojo/plans/rules/check-v2.json",
+            "model": "openai/gpt-5-mini",
+            "key": "checked"
+          },
+          "compare_to": "plans-rules-v2-gpt-5-mini"
         }
       ]
     }

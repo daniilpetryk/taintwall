@@ -5,12 +5,17 @@
 Modules, from the entry point down (``pyproject.toml`` enforces the order):
 
 * ``registry``: specs with implementations; interpreter tools and a call log;
+* ``check``: the static checker: a plan's sure mistakes and its calls, before it runs;
 * ``calls``: the hook that checks arguments and records calls before they run;
+* ``signatures``, ``scope``: what builtins and methods take; which reads come too early;
+* ``infer``: what a plan's values can be, without running it;
 * ``spec``: a tool's parameters, result, effects, readers, and signature;
 * ``values``, ``schema``: plan values to Python and back; parameter types.
 """
 
 from taintwall.tools.calls import CallLog, CallRecord
+from taintwall.tools.check import MAX_ERRORS, PlanCheck, PlannedCall, check_plan
+from taintwall.tools.infer import Known, may_fit
 from taintwall.tools.registry import (
     DuplicateToolError,
     ForeignLogError,
@@ -50,6 +55,7 @@ from taintwall.tools.values import (
 )
 
 __all__ = [
+    "MAX_ERRORS",
     "READ_ONLY",
     "ArgumentError",
     "CallLog",
@@ -60,10 +66,13 @@ __all__ = [
     "ForeignLogError",
     "Implementation",
     "InvalidParamError",
+    "Known",
     "ListOf",
     "Maybe",
     "OneOf",
     "Param",
+    "PlanCheck",
+    "PlannedCall",
     "RecordClashError",
     "RecordOf",
     "Registry",
@@ -73,8 +82,10 @@ __all__ = [
     "UnsupportedSchemaError",
     "ValueType",
     "accepts",
+    "check_plan",
     "from_json_schema",
     "label_plain",
+    "may_fit",
     "normalize",
     "records_in",
     "render",

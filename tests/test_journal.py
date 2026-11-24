@@ -86,7 +86,7 @@ def test_every_result_file_is_in_the_journal() -> None:
     sources = {m["source"].get("summary") or m["source"].get("census") for m in MEASUREMENTS}
     files = {
         str(path.relative_to(ROOT))
-        for pattern in ("**/summary-*.json", "**/census-v*.json")
+        for pattern in ("**/summary-*.json", "**/census-v*.json", "**/check-v*.json")
         for path in RESULTS.glob(pattern)
     }
     assert files - sources == set(), "results not described in bench/results/journal.json"
