@@ -164,5 +164,9 @@ jobs:
           tags: taintwall-app:latest
           cache-from: type=gha,scope=app
           cache-to: type=gha,scope=app,mode=max
+          # The runtime stage runs apt-get upgrade: from the cache it would
+          # keep the packages of the day it was cached, and the scan below
+          # would fail on fixes Debian has already shipped.
+          no-cache-filters: runtime
       - name: scan images (fixable High/Critical fails)
         run: make scan-images
