@@ -235,6 +235,9 @@ def test_runtime_retries_count_one_at_a_time() -> None:
     outcome = plan(model, replan=Replan(static_retries=0, runtime_retries=2))
     assert outcome.completed
     assert len(outcome.attempts) == 2
+    model = FakePlanner("x = broken()", "x = broken()", "x = broken()", GOOD)
+    outcome = plan(model, replan=Replan(static_retries=0, runtime_retries=2))
+    assert (outcome.failure, len(outcome.attempts)) == ("runtime", 3)
 
 
 def test_the_call_log_is_shared_by_every_attempt() -> None:
