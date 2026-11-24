@@ -46,7 +46,8 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   extracts keeps the data's labels, no data can close the fence around it,
   and each reader has a call limit. The LLM layer: structured output through
   OpenRouter as stage 0 found it must be called, replies checked against
-  their schema, typed errors that never carry a reply, an on-disk response
+  their schema (refused before any call if it cannot be checked), retries
+  with backoff, typed errors that never carry a reply, an on-disk response
   cache and a ceiling on calls and cost (#38).
 
 ### Changed

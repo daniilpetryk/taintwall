@@ -14,12 +14,12 @@ from taintwall.core.plan import parse_plan
 from taintwall.llm import StructuredReply, StructuredRequest
 from taintwall.reader import (
     ENOUGH,
-    MAX_DATA_CHARS,
     MAX_FIELDS,
+    MAX_INPUT_CHARS,
     NAME,
     SYSTEM,
     BudgetError,
-    DataTooLargeError,
+    InputTooLargeError,
     NotEnoughInfoError,
     ReaderSchemaError,
     ReplyTypeError,
@@ -269,15 +269,18 @@ def test_a_bad_schema_spends_no_call() -> None:
     assert model.requests[-1].reasoning_effort is None
 
 
-def test_data_past_its_limit_spends_no_call() -> None:
+def test_input_past_its_limit_spends_no_call() -> None:
     model = FakeModel({"a": "x", ENOUGH: True})
-    _, query = reader(model, "m", max_calls=5, reasoning_effort=None, max_data_chars=10)
-    assert query("q", "12345678", {"a": "str"}) == {"a": "x"}  # "12345678" with quotes is 10
-    with pytest.raises(DataTooLargeError) as err:
-        query("q", "123456789", {"a": "str"})
-    assert str(err.value) == "the data is longer than 10 characters"
+    fits = len(prompt("q", "1234"))
+    _, query = reader(model, "m", max_calls=5, reasoning_effort=None, max_input_chars=fits)
+    assert query("q", "1234", {"a": "str"}) == {"a": "x"}
+    for question, data in [("q", "12345"), ("qq", "1234")]:
+        with pytest.raises(InputTooLargeError) as err:
+            query(question, data, {"a": "str"})
+        assert str(err.value) == f"the question and the data are longer than {fits} characters"
     assert len(model.requests) == 1
     _, roomy = reader(model, "m", max_calls=5, reasoning_effort=None)
-    assert roomy("q", "x" * (MAX_DATA_CHARS - 2), {"a": "str"}) == {"a": "x"}
-    with pytest.raises(DataTooLargeError):
-        roomy("q", "x" * (MAX_DATA_CHARS - 1), {"a": "str"})
+    room = MAX_INPUT_CHARS - len(prompt("q", ""))
+    assert roomy("q", "x" * room, {"a": "str"}) == {"a": "x"}
+    with pytest.raises(InputTooLargeError):
+        roomy("q", "x" * (room + 1), {"a": "str"})

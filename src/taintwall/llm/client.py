@@ -88,6 +88,13 @@ class ProviderError(LLMError):
         super().__init__(f"{model}: {what}")
 
 
+class UnsupportedSchemaError(LLMError):
+    """The request's schema uses something no reply could be checked against."""
+
+    def __init__(self, model: str) -> None:
+        super().__init__(f"{model}: unsupported schema, nothing was sent")
+
+
 class BudgetExceededError(LLMError):
     """The client has spent what it may: no more calls."""
 

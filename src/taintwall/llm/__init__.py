@@ -25,9 +25,10 @@ from taintwall.llm.client import (
     StructuredReply,
     StructuredRequest,
     TruncatedError,
+    UnsupportedSchemaError,
     Usage,
 )
-from taintwall.llm.conform import conforms
+from taintwall.llm.conform import conforms, supported
 from taintwall.llm.openrouter import MissingKeyError, OpenRouterClient, Transport, read_key
 
 __all__ = [
@@ -45,7 +46,9 @@ __all__ = [
     "StructuredRequest",
     "Transport",
     "TruncatedError",
+    "UnsupportedSchemaError",
     "Usage",
     "conforms",
     "read_key",
+    "supported",
 ]

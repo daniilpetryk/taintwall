@@ -19,6 +19,7 @@ touch the network.
 
 import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -32,12 +33,16 @@ from taintwall.llm.client import (
     StructuredReply,
     StructuredRequest,
     TruncatedError,
+    UnsupportedSchemaError,
     Usage,
 )
-from taintwall.llm.conform import conforms
+from taintwall.llm.conform import conforms, supported
 
 ENDPOINT: Final = "https://openrouter.ai/api/v1/chat/completions"
 TIMEOUT_SECONDS: Final = 120
+
+RETRY_DELAYS: Final = (2.0, 8.0)
+"""Seconds to wait before each retry of a rate limit, a server error or no answer."""
 
 type Transport = Callable[[str, bytes, Mapping[str, str]], tuple[int, bytes]]
 """POST ``body`` to ``url`` with ``headers``; the status and the response body."""
@@ -82,22 +87,42 @@ def urllib_transport(url: str, body: bytes, headers: Mapping[str, str]) -> tuple
 class OpenRouterClient:
     """An ``LLMClient`` for any model OpenRouter serves."""
 
-    def __init__(self, api_key: str, transport: Transport = urllib_transport) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        transport: Transport = urllib_transport,
+        sleep: Callable[[float], None] | None = None,
+    ) -> None:
         self._headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         self._transport = transport
+        self._sleep = sleep or time.sleep
 
     def structured(self, request: StructuredRequest) -> StructuredReply:
         """Ask the model; the reply object, or a typed ``LLMError``.
 
+        A rate limit (429), a server error (5xx) or no answer is retried after
+        each of ``RETRY_DELAYS``; a provider bills only a completed reply.
+
         Raises:
-            ProviderError: a status other than 200, or no answer at all.
+            UnsupportedSchemaError: a schema no reply could be checked against;
+                nothing is sent.
+            ProviderError: a status other than 200, or no answer at all, after
+                the retries.
             TruncatedError: the reply was cut at ``max_tokens``.
             MalformedReplyError: no JSON object of the request's schema.
         """
-        answer = _post(self._transport, json.dumps(body(request)).encode(), self._headers)
+        if not supported(request.schema):
+            raise UnsupportedSchemaError(request.model)
+        data = json.dumps(body(request)).encode()
+        answer = _post(self._transport, data, self._headers)
+        for delay in RETRY_DELAYS:
+            if not _transient(answer):
+                break
+            self._sleep(delay)
+            answer = _post(self._transport, data, self._headers)
         # Raised outside any handler: no exception rides along as context.
         if answer is None:
             raise ProviderError(request.model, None)
@@ -108,6 +133,11 @@ class OpenRouterClient:
         if not conforms(dict(reply.value), request.schema):
             raise MalformedReplyError(request.model, "not of the schema")
         return reply
+
+
+def _transient(answer: tuple[int, bytes] | None) -> bool:
+    """No answer, a rate limit or a server error: worth asking again."""
+    return answer is None or answer[0] == 429 or answer[0] >= 500  # noqa: PLR2004 - HTTP codes
 
 
 def _post(

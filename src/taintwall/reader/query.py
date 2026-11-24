@@ -22,11 +22,20 @@ The question and the data reach the model as JSON values in which ``<`` and
 ``>`` are escaped, so neither can close the ``<question>`` or ``<data>``
 fence around it: a plan may build its question from data, and data may hold
 anything; the fullwidth and small characters that look like ``<`` and ``>`` are escaped
-too. Each reader takes at most ``max_calls`` calls (``BudgetError`` past
-it), each with at most ``max_data_chars`` of serialized data
-(``DataTooLargeError``), so a loop, whose length data may choose, cannot
+too. A question a plan builds from data is fenced like the data, but the
+model still answers it, so text injected there acts as the task: such a
+question gives up that protection (its output keeps the data's labels).
+
+Each reader takes at most ``max_calls`` calls (``BudgetError`` past it), each
+with at most ``max_input_chars`` of fenced question and data together
+(``InputTooLargeError``), so a loop, whose length data may choose, cannot
 spend without bound; build one reader per run, and put a cost ceiling on the
 client (``taintwall.llm.BudgetedClient``).
+
+Every failure reaches the planner the same way, ``TOOL_FAILED`` for
+``query_reader``: which one it was (not enough information, too large, out
+of calls) is not told, since some of it is a bit about the data. A planner
+that must handle missing data asks for fewer fields or checks its inputs.
 """
 
 import json
@@ -54,8 +63,8 @@ ENOUGH: Final = "have_enough_info"
 
 MAX_FIELDS: Final = 32
 
-MAX_DATA_CHARS: Final = 40_000
-"""Serialized data per call by default: about 10k tokens."""
+MAX_INPUT_CHARS: Final = 40_000
+"""Fenced question and data per call by default: about 10k tokens."""
 
 _ANGLES: Final = str.maketrans({
     "<": "\\u003c", ">": "\\u003e",
@@ -125,11 +134,11 @@ class BudgetError(RuntimeError):
         super().__init__(f"the reader may make at most {calls} calls")
 
 
-class DataTooLargeError(ValueError):
-    """The data is longer than a reader call may send."""
+class InputTooLargeError(ValueError):
+    """The question and the data are longer than a reader call may send."""
 
     def __init__(self, limit: int) -> None:
-        super().__init__(f"the data is longer than {limit} characters")
+        super().__init__(f"the question and the data are longer than {limit} characters")
 
 
 class ReplyTypeError(TypeError):
@@ -146,12 +155,12 @@ def reader(  # noqa: PLR0913 - the model's own settings, keyword-only
     max_calls: int,
     reasoning_effort: str | None,
     max_tokens: int = 4000,
-    max_data_chars: int = MAX_DATA_CHARS,
+    max_input_chars: int = MAX_INPUT_CHARS,
 ) -> tuple[ToolSpec, Implementation]:
     """``query_reader`` as a registry entry, answering through ``client``.
 
-    ``max_calls`` bounds this reader's calls and ``max_data_chars`` the data
-    of each. ``reasoning_effort`` must be chosen: ``"low"`` for a reasoning
+    ``max_calls`` bounds this reader's calls and ``max_input_chars`` the
+    fenced question and data of each. ``reasoning_effort`` must be chosen: ``"low"`` for a reasoning
     model (the Q-LLM's effort in design.md), ``None`` for one that takes no
     such parameter, since with ``require_parameters`` sending it would fail
     the request. ``max_tokens`` is the output budget, reasoning included (the
@@ -161,15 +170,16 @@ def reader(  # noqa: PLR0913 - the model's own settings, keyword-only
 
     def query_reader(question: str, data: object, output_schema: Mapping[str, object]) -> object:
         types, schema = compile_schema(output_schema)
-        if len(fenced(data)) > max_data_chars:
-            raise DataTooLargeError(max_data_chars)
+        user = prompt(question, data)
+        if len(user) > max_input_chars:
+            raise InputTooLargeError(max_input_chars)
         if made[0] >= max_calls:
             raise BudgetError(max_calls)
         made[0] += 1
         request = StructuredRequest(
             model=model,
             system=SYSTEM,
-            user=prompt(question, data),
+            user=user,
             schema_name="extraction",
             schema=schema,
             max_tokens=max_tokens,

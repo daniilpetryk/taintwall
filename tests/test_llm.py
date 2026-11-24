@@ -9,6 +9,7 @@ import json
 import socketserver
 import stat
 import threading
+import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import ClassVar, override
@@ -26,10 +27,12 @@ from taintwall.llm import (
     StructuredReply,
     StructuredRequest,
     TruncatedError,
+    UnsupportedSchemaError,
     Usage,
     conforms,
     openrouter,
     read_key,
+    supported,
 )
 from taintwall.llm.cache import key
 
@@ -41,6 +44,14 @@ REQUEST = StructuredRequest(
     schema={"type": "object"},
     max_tokens=100,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_waiting(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Retries sleep through time.sleep; here they only record how long."""
+    waited: list[float] = []
+    monkeypatch.setattr(time, "sleep", waited.append)
+    return waited
 
 
 def response(content: object, finish: str = "stop", usage: object = None) -> bytes:
@@ -374,11 +385,86 @@ class TestSchemaAndFailures:
             [],
             {"type": "object", "properties": []},
             {"type": "object", "required": "a"},
+            {"$ref": "#/$defs/A"},
+            {"enum": "x"},
+            {"anyOf": {"type": "string"}},
+            {"anyOf": [{"type": "string", "pattern": "x"}]},
+            {"type": "object", "properties": {"a": {"type": "string", "format": "email"}}},
+            {"type": "array", "items": {"minimum": 1}},
+            {"type": "object", "additionalProperties": {"maxLength": 1}},
         ],
     )
     def test_a_schema_it_cannot_check_fits_nothing(self, schema: object) -> None:
+        assert not supported(schema)
         assert not conforms({"a": "x"}, schema)
         assert not conforms("x", schema)
+
+    @pytest.mark.parametrize(
+        ("value", "schema", "fits"),
+        [
+            (
+                {"a": "x"},
+                {
+                    "type": "object",
+                    "description": "d",
+                    "properties": {
+                        "a": {
+                            "type": "string",
+                            "title": "A",
+                            "description": "a",
+                            "default": "",
+                            "examples": ["x"],
+                            "deprecated": False,
+                            "$comment": "c",
+                        }
+                    },
+                },
+                True,
+            ),
+            ("b", {"enum": ["a", "b"]}, True),
+            ("c", {"enum": ["a", "b"]}, False),
+            (1, {"enum": [True]}, False),
+            (True, {"const": True}, True),
+            (1, {"const": True}, False),
+            (1.0, {"const": 1}, False),
+            (None, {"anyOf": [{"type": "string"}, {"type": "null"}]}, True),
+            (3, {"anyOf": [{"type": "string"}, {"type": "null"}]}, False),
+            ([1, "a", None], {"type": "array"}, True),
+            ("x", {}, True),
+            (
+                {"a": 1, "b": 2},
+                {"type": "object", "additionalProperties": {"type": "integer"}},
+                True,
+            ),
+            (
+                {"a": 1, "b": "2"},
+                {"type": "object", "additionalProperties": {"type": "integer"}},
+                False,
+            ),
+            (
+                {"a": "x", "b": 2},
+                {
+                    "type": "object",
+                    "properties": {"a": {"type": "string"}},
+                    "additionalProperties": {"type": "integer"},
+                },
+                True,
+            ),
+        ],
+    )
+    def test_the_supported_keywords_are_checked(
+        self, value: object, schema: object, *, fits: bool
+    ) -> None:
+        assert supported(schema)
+        assert conforms(value, schema) is fits
+
+    def test_an_unsupported_schema_is_refused_before_any_call(self) -> None:
+        transport = Recorder(200, response("{}"))
+        request = dataclasses.replace(REQUEST, schema={"type": "object", "minProperties": 1})
+        with pytest.raises(UnsupportedSchemaError) as err:
+            OpenRouterClient("k", transport).structured(request)
+        assert str(err.value) == "m/x: unsupported schema, nothing was sent"
+        assert transport.calls == []
 
     def test_every_allowed_keyword_is_known(self) -> None:
         schema = {
@@ -444,3 +530,51 @@ class TestBudget:
         budget.structured(REQUEST)
         budget.structured(REQUEST)
         assert (budget.calls, budget.cost) == (0, 0.0)
+
+
+class Flaky:
+    """Answers each status in turn (``None``: no answer at all), then the last forever."""
+
+    def __init__(self, *answers: int | None) -> None:
+        self.answers = list(answers)
+        self.calls = 0
+
+    def __call__(self, _url: str, _body: bytes, _headers: Mapping[str, str]) -> tuple[int, bytes]:
+        self.calls += 1
+        status = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        if status is None:
+            raise ConnectionResetError
+        return status, response('{"a": 1}') if status == 200 else b""
+
+
+@pytest.mark.parametrize("transient", [429, 500, 503, None])
+def test_a_transient_failure_is_retried(transient: int | None, no_waiting: list[float]) -> None:
+    flaky = Flaky(transient, 200)
+    assert OpenRouterClient("k", flaky).structured(REQUEST).value == {"a": 1}
+    assert (flaky.calls, no_waiting) == (2, [2.0])
+
+
+def test_retries_end(no_waiting: list[float]) -> None:
+    flaky = Flaky(503)
+    with pytest.raises(ProviderError) as err:
+        OpenRouterClient("k", flaky).structured(REQUEST)
+    assert str(err.value) == "m/x: provider error (HTTP 503)"
+    assert (flaky.calls, no_waiting) == (3, [2.0, 8.0])
+    gone = Flaky(None)
+    with pytest.raises(ProviderError) as unreachable:
+        OpenRouterClient("k", gone).structured(REQUEST)
+    assert str(unreachable.value) == "m/x: provider unreachable"
+
+
+@pytest.mark.parametrize("final", [400, 401, 402, 404, 499])
+def test_a_client_error_is_not_retried(final: int, no_waiting: list[float]) -> None:
+    flaky = Flaky(final)
+    with pytest.raises(ProviderError):
+        OpenRouterClient("k", flaky).structured(REQUEST)
+    assert (flaky.calls, no_waiting) == (1, [])
+
+
+def test_a_given_sleep_is_used() -> None:
+    waited: list[float] = []
+    OpenRouterClient("k", Flaky(429, 200), sleep=waited.append).structured(REQUEST)
+    assert waited == [2.0]
