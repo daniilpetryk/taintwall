@@ -678,7 +678,7 @@
       "prs": [
         36
       ],
-      "commit": "",
+      "commit": "a8985f3",
       "title": "Static plan checker",
       "changed": "Before a plan runs, the checker reads it against the tool specs and reports every statement that would fail whatever the data: unknown tools, names read before anything binds them, arguments that do not fit a tool, builtin or method, fields a record type lacks, indexes, loops and f-string parts a value cannot take, a tool's name reused. Errors are typed codes from the plan text only; it also lists every call with its effects and its constant arguments, for one approval per plan.",
       "question": "Of the plans the language accepts, how many does the checker still stop, and are those real mistakes?",

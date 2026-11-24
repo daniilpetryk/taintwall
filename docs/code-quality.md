@@ -78,12 +78,17 @@ taintwall.core.interpreter
   arguments | location            call arguments; error locations
 
 taintwall.tools
+  reader                          query_reader: the Q-LLM as a tool, a fixed schema out
   registry                        specs with implementations; interpreter tools; a call log per run
   check | calls                   static checker: sure failures, calls, effects | the hook: argument checks and call records
   signatures | scope              what builtins and methods take | which reads come before any binding
   infer                           what a plan's values can be, without running it
   spec                            parameters, result, effects, readers, signature
   values | schema                 plan values to Python and back | parameter and result types
+
+taintwall.llm
+  openrouter | cache              the OpenRouter backend | replies cached by request hash
+  client                          LLMClient, the structured request and reply, typed errors
 
 taintwall.core.labels
   value                           Labeled values, typed equality

@@ -252,10 +252,16 @@ containers = ["taintwall.core.labels"]
 layers = ["value", "label | immutability", "source", "errors"]
 
 [[tool.importlinter.contracts]]
-name = "Tool layers: registry > checker, call log > signatures, scope > inference > specs > values, schema"
+name = "Tool layers: reader > registry > checker, call log > signatures, scope > inference > specs > values, schema"
 type = "layers"
 containers = ["taintwall.tools"]
-layers = ["registry", "check | calls", "signatures | scope", "infer", "spec", "values | schema"]
+layers = ["reader", "registry", "check | calls", "signatures | scope", "infer", "spec", "values | schema"]
+
+[[tool.importlinter.contracts]]
+name = "LLM layers: backends > client"
+type = "layers"
+containers = ["taintwall.llm"]
+layers = ["openrouter | cache", "client"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
@@ -265,7 +271,7 @@ ancestors = ["taintwall"]
 # --- mutmut: mutation testing (nightly, see .github/workflows/mutation.yml) -----
 
 [tool.mutmut]
-paths_to_mutate = ["src/taintwall/core/", "src/taintwall/tools/"]
+paths_to_mutate = ["src/taintwall/core/", "src/taintwall/tools/", "src/taintwall/llm/"]
 also_copy = ["src/taintwall/"]  # the rest of the package, unmutated
 tests_dir = ["tests/"]
 # Tests that read source files check code shape, not behavior, and would

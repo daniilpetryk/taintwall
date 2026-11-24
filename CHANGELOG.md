@@ -41,6 +41,11 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   from the plan text only, and every call with its effects and constant
   arguments. Over the study's 91 accepted plans it stops 21, most for
   formatting a tool's record in an f-string (#36).
+- The reader (Q-LLM) as the tool `query_reader`: a schema of field names and
+  types in, checked fields out, `have_enough_info` on every reply; what it
+  extracts keeps the data's labels. The LLM layer: structured output through
+  OpenRouter as stage 0 found it must be called, typed errors that never
+  quote a reply, and an on-disk response cache (#38).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,

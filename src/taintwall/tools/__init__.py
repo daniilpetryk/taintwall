@@ -4,6 +4,7 @@
 
 Modules, from the entry point down (``pyproject.toml`` enforces the order):
 
+* ``reader``: ``query_reader``, the Q-LLM as a tool: data in, a fixed schema out;
 * ``registry``: specs with implementations; interpreter tools and a call log;
 * ``check``: the static checker: a plan's sure mistakes and its calls, before it runs;
 * ``calls``: the hook that checks arguments and records calls before they run;
@@ -16,6 +17,12 @@ Modules, from the entry point down (``pyproject.toml`` enforces the order):
 from taintwall.tools.calls import CallLog, CallRecord
 from taintwall.tools.check import MAX_ERRORS, PlanCheck, PlannedCall, check_plan
 from taintwall.tools.infer import Known, may_fit
+from taintwall.tools.reader import (
+    NotEnoughInfoError,
+    ReaderSchemaError,
+    ReplyTypeError,
+    reader,
+)
 from taintwall.tools.registry import (
     DuplicateToolError,
     ForeignLogError,
@@ -69,13 +76,16 @@ __all__ = [
     "Known",
     "ListOf",
     "Maybe",
+    "NotEnoughInfoError",
     "OneOf",
     "Param",
     "PlanCheck",
     "PlannedCall",
+    "ReaderSchemaError",
     "RecordClashError",
     "RecordOf",
     "Registry",
+    "ReplyTypeError",
     "ResultTypeError",
     "Scalar",
     "ToolSpec",
@@ -87,6 +97,7 @@ __all__ = [
     "label_plain",
     "may_fit",
     "normalize",
+    "reader",
     "records_in",
     "render",
     "render_record",
