@@ -219,7 +219,8 @@ class _Run:
         self.user = prompt.request(request)
         self.log: CallLog | None = None
         self.attempts: list[Attempt] = []
-        self.refused = False
+        # Only ever tested for truth: None would read the same.
+        self.refused = False  # pragma: no mutate
         self.static = 0
         self.runtime = 0
         self.usage = Usage()

@@ -587,6 +587,7 @@ class TestBudget:
         assert budget.cost == pytest.approx(0.6)
         with pytest.raises(TruncatedError):
             budget.structured(REQUEST)
+        assert budget.calls == 2  # two failed calls
         with pytest.raises(BudgetExceededError):
             budget.structured(REQUEST)
         unreachable = BudgetedClient(Failing(ProviderError("m/x", None)), max_calls=1, max_cost=1.0)

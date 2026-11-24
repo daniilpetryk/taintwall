@@ -259,13 +259,16 @@ class TestLoop:
         assert outcome.failure == "policy"
 
     def test_a_tool_failure_is_not_a_refusal(self) -> None:
+        seen: list[str] = []
+
         class Allows:
             def before(self, call: PendingCall) -> None:
-                pass
+                seen.append(call.name)
 
         model = FakePlanner("x = broken()", GOOD)
         planner = Planner(model, MODEL, tools, policies=lambda: [Allows()])
         assert planner.run("Hi.", requester=MINT.owner(), mint=MINT).answered
+        assert seen == ["broken", "balance", "answer"]
 
     def test_policies_are_built_afresh_for_each_request(self) -> None:
         class Once:
