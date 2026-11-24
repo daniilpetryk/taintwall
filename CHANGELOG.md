@@ -49,6 +49,10 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   their schema (refused before any call if it cannot be checked), retries
   with backoff, typed errors that never carry a reply, an on-disk response
   cache and a ceiling on calls and cost (#38).
+- The planner: a P-LLM prompt built from the plan language's rules and the
+  tool registry, an `answer` tool, and a loop that checks and runs each
+  program and retries within Q3's bounds with typed errors only, never after
+  an effect (#39).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,

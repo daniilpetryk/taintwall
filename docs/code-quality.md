@@ -77,6 +77,10 @@ taintwall.core.interpreter
   limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
 
+taintwall.planner
+  loop                            Planner: plan, check, run, retry within Replan (Q3)
+  prompt | answer                 what the planner reads | the answer tool
+
 taintwall.reader
   query                           query_reader: the Q-LLM as a tool, a fixed schema out
 

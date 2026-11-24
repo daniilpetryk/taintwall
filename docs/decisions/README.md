@@ -25,3 +25,4 @@ decisions refine older ones rather than editing them.
 | [0017](0017-tools-from-trusted-specs.md) | Tools come from trusted specs; a hook sees every call before it runs | 2026-11-20 | [#30](https://github.com/daniilpetryk/taintwall/pull/30) | accepted |
 | [0018](0018-static-checker-refuses-only-sure-failures.md) | The static checker reports only statements that fail whatever the data | 2026-11-24 | [#36](https://github.com/daniilpetryk/taintwall/pull/36) | accepted |
 | [0019](0019-reader-is-a-tool.md) | The reader is a tool; a model call is structured output or a typed error | 2026-11-24 | [#38](https://github.com/daniilpetryk/taintwall/pull/38) | accepted |
+| [0020](0020-planner-loop.md) | The planner loop retries only with typed errors, and never after an effect | 2026-11-24 | [#39](https://github.com/daniilpetryk/taintwall/pull/39) | accepted |

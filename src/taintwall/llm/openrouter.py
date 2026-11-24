@@ -44,8 +44,14 @@ TIMEOUT_SECONDS: Final = 120
 RETRY_DELAYS: Final = (2.0, 8.0)
 """Seconds to wait before each retry of a rate limit, a server error or no answer."""
 
-type Transport = Callable[[str, bytes, Mapping[str, str]], tuple[int, bytes]]
-"""POST ``body`` to ``url`` with ``headers``; the status and the response body."""
+MAX_WAIT: Final = 60.0
+"""The longest a ``Retry-After`` may make a retry wait."""
+
+type Answer = tuple[int, bytes, float | None]
+"""The status, the response body, and the seconds a ``Retry-After`` asks to wait."""
+
+type Transport = Callable[[str, bytes, Mapping[str, str]], Answer]
+"""POST ``body`` to ``url`` with ``headers``; the provider's answer."""
 
 
 class MissingKeyError(RuntimeError):
@@ -71,17 +77,23 @@ def read_key(env_file: Path) -> str:
     raise MissingKeyError(env_file)
 
 
-def urllib_transport(url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
+def urllib_transport(url: str, body: bytes, headers: Mapping[str, str]) -> Answer:
     """POST with the standard library; an HTTP error is a status, not an exception."""
     # POST and the timeout are what urllib would pick here; stated so they stay.
     request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")  # noqa: S310  # pragma: no mutate
     try:
         # Without the timeout a stalled provider would hang the run; tests cannot wait it out.
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310  # pragma: no mutate
-            return int(response.status), response.read()
+            return int(response.status), response.read(), None
     except urllib.error.HTTPError as err:
         err.close()
-        return err.code, b""
+        # Header names are case-insensitive, so a mutant's other case reads the same header.
+        return err.code, b"", _seconds(err.headers.get("Retry-After"))  # pragma: no mutate
+
+
+def _seconds(header: str | None) -> float | None:
+    """A ``Retry-After`` given in seconds; ``None`` for none or an HTTP date."""
+    return float(header) if header is not None and header.strip().isdigit() else None
 
 
 class OpenRouterClient:
@@ -104,7 +116,10 @@ class OpenRouterClient:
         """Ask the model; the reply object, or a typed ``LLMError``.
 
         A rate limit (429), a server error (5xx) or no answer is retried after
-        each of ``RETRY_DELAYS``; a provider bills only a completed reply.
+        each of ``RETRY_DELAYS``, or longer if the provider's ``Retry-After``
+        asks (up to ``MAX_WAIT``). A provider bills a completed reply: if the
+        connection drops after the reply was generated, the retry may be
+        billed again, and only the reply that arrives counts in ``Usage``.
 
         Raises:
             UnsupportedSchemaError: a schema no reply could be checked against;
@@ -121,12 +136,13 @@ class OpenRouterClient:
         for delay in RETRY_DELAYS:
             if not _transient(answer):
                 break
-            self._sleep(delay)
+            asked = None if answer is None else answer[2]
+            self._sleep(delay if asked is None else max(delay, min(asked, MAX_WAIT)))
             answer = _post(self._transport, data, self._headers)
         # Raised outside any handler: no exception rides along as context.
         if answer is None:
             raise ProviderError(request.model, None)
-        status, raw = answer
+        status, raw, _ = answer
         if status != 200:  # noqa: PLR2004 - HTTP OK
             raise ProviderError(request.model, status)
         reply = parse(request.model, raw)
@@ -135,14 +151,12 @@ class OpenRouterClient:
         return reply
 
 
-def _transient(answer: tuple[int, bytes] | None) -> bool:
+def _transient(answer: Answer | None) -> bool:
     """No answer, a rate limit or a server error: worth asking again."""
     return answer is None or answer[0] == 429 or answer[0] >= 500  # noqa: PLR2004 - HTTP codes
 
 
-def _post(
-    transport: Transport, data: bytes, headers: Mapping[str, str]
-) -> tuple[int, bytes] | None:
+def _post(transport: Transport, data: bytes, headers: Mapping[str, str]) -> Answer | None:
     """The transport's answer, or ``None`` if there was none (refused, timed out, cut off)."""
     try:
         return transport(ENDPOINT, data, headers)
