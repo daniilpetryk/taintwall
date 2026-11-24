@@ -632,7 +632,11 @@ def test_a_retry_after_lengthens_the_wait(
 
 def test_a_billed_failure_carries_its_usage() -> None:
     usage = {"prompt_tokens": 3, "completion_tokens": 9, "cost": 0.5}
-    for raw in (response("{}", finish="length", usage=usage), response("[1]", usage=usage)):
+    for raw in (
+        response("{}", finish="length", usage=usage),
+        response("[1]", usage=usage),
+        response("not json", usage=usage),
+    ):
         with pytest.raises(LLMError) as err:
             OpenRouterClient("k", Recorder(200, raw)).structured(REQUEST)
         assert err.value.usage == Usage(3, 9, 0, 0.5)

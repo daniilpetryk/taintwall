@@ -265,9 +265,11 @@ def test_a_planner_runs_each_request_with_fresh_tools() -> None:
     class Model:
         def __init__(self) -> None:
             self.reader_calls = 0
+            self.systems: list[str] = []
 
         def structured(self, request: StructuredRequest) -> StructuredReply:
             if request.schema_name == "plan":
+                self.systems.append(request.system)
                 source = (
                     'n = note()\ninfo = query_reader("A?", n, {"a": "float"})\nanswer(str(info.a))'
                 )
@@ -286,11 +288,13 @@ def test_a_planner_runs_each_request_with_fresh_tools() -> None:
         outcome = planner.run("Amount?", requester=MINT.owner(), mint=MINT)
         assert [answer.text for answer in outcome.answers] == ["1.5"]
     assert model.reader_calls == 2
+    assert "pass it to `query_reader`" in model.systems[0]
 
 
 def test_the_reader_is_mentioned_only_when_it_is_there() -> None:
     model = FakePlanner(GOOD)
     plan(model)
     assert "query_reader" not in model.requests[0].system
+    assert "you cannot see. When the program is done" in model.requests[0].system
     assert "query_reader" in system("functions", has_reader=True)
     assert "plain ASCII" in rules()
