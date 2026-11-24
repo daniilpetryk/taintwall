@@ -9,11 +9,13 @@ policies that need tools never reach an LLM through them.
 
 from taintwall.reader.query import (
     ENOUGH,
+    MAX_DATA_CHARS,
     MAX_FIELDS,
     NAME,
     SPEC,
     SYSTEM,
     BudgetError,
+    DataTooLargeError,
     NotEnoughInfoError,
     ReaderSchemaError,
     ReplyTypeError,
@@ -26,11 +28,13 @@ from taintwall.reader.query import (
 
 __all__ = [
     "ENOUGH",
+    "MAX_DATA_CHARS",
     "MAX_FIELDS",
     "NAME",
     "SPEC",
     "SYSTEM",
     "BudgetError",
+    "DataTooLargeError",
     "NotEnoughInfoError",
     "ReaderSchemaError",
     "ReplyTypeError",

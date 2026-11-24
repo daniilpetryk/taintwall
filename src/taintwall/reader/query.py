@@ -21,10 +21,12 @@ fails the same way; no reply text reaches the plan or an error.
 The question and the data reach the model as JSON values in which ``<`` and
 ``>`` are escaped, so neither can close the ``<question>`` or ``<data>``
 fence around it: a plan may build its question from data, and data may hold
-anything. Each reader takes at most ``max_calls`` calls (``BudgetError``
-past it), so a loop, whose length data may choose, cannot spend without
-bound; build one reader per run, and put a cost ceiling on the client
-(``taintwall.llm.BudgetedClient``).
+anything; the fullwidth and small characters that look like ``<`` and ``>`` are escaped
+too. Each reader takes at most ``max_calls`` calls (``BudgetError`` past
+it), each with at most ``max_data_chars`` of serialized data
+(``DataTooLargeError``), so a loop, whose length data may choose, cannot
+spend without bound; build one reader per run, and put a cost ceiling on the
+client (``taintwall.llm.BudgetedClient``).
 """
 
 import json
@@ -51,6 +53,16 @@ ENOUGH: Final = "have_enough_info"
 """The field every reply carries (Q4); a plan cannot ask for it itself."""
 
 MAX_FIELDS: Final = 32
+
+MAX_DATA_CHARS: Final = 40_000
+"""Serialized data per call by default: about 10k tokens."""
+
+_ANGLES: Final = str.maketrans({
+    "<": "\\u003c", ">": "\\u003e",
+    "\uff1c": "\\uff1c", "\uff1e": "\\uff1e",
+    "\ufe64": "\\ufe64", "\ufe65": "\\ufe65",
+})  # fmt: skip
+"""Angle brackets and their similar-looking characters, as JSON escapes."""
 
 SYSTEM: Final = """You extract information from data for a program.
 
@@ -113,6 +125,13 @@ class BudgetError(RuntimeError):
         super().__init__(f"the reader may make at most {calls} calls")
 
 
+class DataTooLargeError(ValueError):
+    """The data is longer than a reader call may send."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"the data is longer than {limit} characters")
+
+
 class ReplyTypeError(TypeError):
     """The reply does not fit the schema the plan asked for."""
 
@@ -120,24 +139,30 @@ class ReplyTypeError(TypeError):
         super().__init__("the reader's reply does not fit the schema")
 
 
-def reader(
+def reader(  # noqa: PLR0913 - the model's own settings, keyword-only
     client: LLMClient,
     model: str,
     *,
     max_calls: int,
+    reasoning_effort: str | None,
     max_tokens: int = 4000,
-    reasoning_effort: str | None = None,
+    max_data_chars: int = MAX_DATA_CHARS,
 ) -> tuple[ToolSpec, Implementation]:
     """``query_reader`` as a registry entry, answering through ``client``.
 
-    ``max_calls`` bounds this reader's calls; ``max_tokens`` is the output
-    budget, reasoning included (the planner study saw 2000 cut a reasoning
-    model's replies), and is the model's to choose.
+    ``max_calls`` bounds this reader's calls and ``max_data_chars`` the data
+    of each. ``reasoning_effort`` must be chosen: ``"low"`` for a reasoning
+    model (the Q-LLM's effort in design.md), ``None`` for one that takes no
+    such parameter, since with ``require_parameters`` sending it would fail
+    the request. ``max_tokens`` is the output budget, reasoning included (the
+    planner study saw 2000 cut a reasoning model's replies).
     """
     made = [0]
 
     def query_reader(question: str, data: object, output_schema: Mapping[str, object]) -> object:
         types, schema = compile_schema(output_schema)
+        if len(fenced(data)) > max_data_chars:
+            raise DataTooLargeError(max_data_chars)
         if made[0] >= max_calls:
             raise BudgetError(max_calls)
         made[0] += 1
@@ -198,9 +223,8 @@ def prompt(question: str, data: object) -> str:
 
 
 def fenced(value: object) -> str:
-    """``value`` as JSON with ``<`` and ``>`` escaped: it cannot close a fence."""
-    text = json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return text.replace("<", "\\u003c").replace(">", "\\u003e")
+    """``value`` as JSON, angle brackets and their kin escaped: it cannot close a fence."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True).translate(_ANGLES)
 
 
 def check_reply(reply: dict[str, object], types: RecordOf) -> dict[str, object]:

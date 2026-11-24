@@ -7,6 +7,7 @@ import http.client
 import http.server
 import json
 import socketserver
+import stat
 import threading
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -270,6 +271,29 @@ class TestCache:
         ).value == {"a": 2}
         assert json.loads(path.read_text(encoding="utf-8")) == {"a": 2}
         assert [p.name for p in directory.iterdir()] == [path.name]
+
+    def test_the_cache_is_the_owners_alone(self, tmp_path: Path) -> None:
+        loose = tmp_path / "loose"
+        loose.mkdir(mode=0o755)
+        loose.chmod(0o755)
+        client = CachedClient(OpenRouterClient("k", Recorder(200, response('{"a": 1}'))), loose)
+        client.structured(REQUEST)
+        assert stat.S_IMODE(loose.stat().st_mode) == 0o700
+        entry = loose / f"{key(REQUEST)}.json"
+        assert stat.S_IMODE(entry.stat().st_mode) == 0o600
+        fresh = tmp_path / "a" / "b"
+        CachedClient(OpenRouterClient("k", Recorder(200, b"")), fresh)
+        assert stat.S_IMODE(fresh.stat().st_mode) == 0o700
+
+    def test_an_entry_off_the_schema_is_a_miss(self, tmp_path: Path) -> None:
+        request = dataclasses.replace(REQUEST, schema=STRICT)
+        directory = tmp_path / "c"
+        directory.mkdir()
+        (directory / f"{key(request)}.json").write_text('{"other": 1}', encoding="utf-8")
+        transport = Recorder(200, response('{"a": "s", "n": 1}'))
+        reply = CachedClient(OpenRouterClient("k", transport), directory).structured(request)
+        assert reply == StructuredReply({"a": "s", "n": 1})
+        assert len(transport.calls) == 1
 
     def test_a_failed_call_is_not_cached(self, tmp_path: Path) -> None:
         client = CachedClient(OpenRouterClient("k", Recorder(500, b"")), tmp_path / "c")
