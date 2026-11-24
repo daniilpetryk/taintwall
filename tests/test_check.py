@@ -125,6 +125,9 @@ BAD = [
     "y = len()",
     "y = len(x=1)",
     "y = round(1, 2, 3)",
+    "y = round(1, 2.5)",
+    "y = 1 and q",
+    "for i in range(2):\n    if i:\n        y = z\nfor j in range(2):\n    z = 1",
     "y = min()",
     "y = range('a')",
     "y = int((1,))",
@@ -184,6 +187,8 @@ GOOD = [
     "y = round(2.5, 1) + abs(-1) + min(1, 2) + sum((1, 2))\nz = int('3') + len('ab')",
     "y = ','.join(('a', 'b')).strip().split(',')",
     "for i in range(2):\n    y = i > 0 and prev\n    prev = i",
+    "for i in range(2):\n    for j in range(i):\n        y = z\n    z = 1",
+    "y = int(2.5) + float(1)",
 ]
 
 

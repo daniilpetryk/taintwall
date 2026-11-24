@@ -42,10 +42,6 @@ class _Where:
     guarded: frozenset[int] = frozenset()
     """The loops within which this point is conditional."""
 
-    def enter(self, loop: ast.AST) -> "_Where":
-        """Inside ``loop``, not yet conditional within it."""
-        return _Where(self.loops | {id(loop)}, self.guarded)
-
     def branch(self) -> "_Where":
         """Under a condition: conditional within every loop around it."""
         return _Where(self.loops, self.loops)
@@ -58,13 +54,17 @@ def early_reads(tree: ast.Module) -> frozenset[int]:
     return frozenset(
         id(read.node)
         for read in events
-        if read.node is not None
-        and not any(
-            binding.name == read.name
-            and (binding.at <= read.at or bool(binding.loops & read.loops))
-            for binding in bindings
-        )
+        if read.node is not None and not any(_precedes(binding, read) for binding in bindings)
     )
+
+
+def _precedes(binding: _Event, read: _Event) -> bool:
+    """Whether ``binding`` may have run before ``read``."""
+    if binding.name != read.name:
+        return False
+    # A binding's end never coincides with a read's start.
+    earlier = binding.at < read.at  # pragma: no mutate - see above
+    return earlier or bool(binding.loops & read.loops)
 
 
 def _events(node: ast.AST, where: _Where) -> Iterator[_Event]:
@@ -76,9 +76,9 @@ def _events(node: ast.AST, where: _Where) -> Iterator[_Event]:
             yield from _events(value, where)
             yield _Event(name, _end(node), where.loops)
         case ast.AugAssign(ast.Name(name), _, value):
+            # It binds a name that must already be bound: a read, then the value.
             yield _Event(name, _start(node), where.guarded, node)
             yield from _events(value, where)
-            yield _Event(name, _end(node), where.loops)
         case ast.For() | ast.While():
             yield from _loop(node, where)
         case ast.If() | ast.IfExp() | ast.BoolOp():
@@ -90,36 +90,38 @@ def _events(node: ast.AST, where: _Where) -> Iterator[_Event]:
 
 def _loop(node: ast.AST, where: _Where) -> Iterator[_Event]:
     """A ``for`` evaluates its iterable once, before; a ``while`` its test first."""
-    inside = where.enter(node)
+    loops = where.loops | {id(node)}
     if isinstance(node, ast.For):
         assert isinstance(node.target, ast.Name)  # noqa: S101 - parse_plan allows no other
         yield from _events(node.iter, where)
-        yield _Event(node.target.id, _end(node.iter), inside.loops)
+        yield _Event(node.target.id, _end(node.iter), loops)
     else:
         assert isinstance(node, ast.While)  # noqa: S101 - the caller dispatches no other
         # The first test runs before the body: its bindings never precede it.
         yield from _events(node.test, where)
     # The body may run zero times, so it is conditional for the loops around
     # this one; not for this one, whose first iteration runs it in order.
-    body = _Where(inside.loops, where.loops)
+    body = _Where(loops, where.loops)
     for statement in node.body:
         yield from _events(statement, body)
 
 
 def _branches(node: ast.AST, where: _Where) -> Iterator[_Event]:
     """A test or first operand runs; what follows it may not."""
-    first: ast.AST = node
-    rest: Sequence[ast.AST] = ()
-    match node:
-        case ast.If(test, body, orelse):
-            first, rest = test, (*body, *orelse)
-        case ast.IfExp(test, body, orelse):
-            first, rest = test, (body, orelse)
-        case ast.BoolOp(_, [operand, *later]):
-            first, rest = operand, tuple(later)
+    first, rest = _split(node)
     yield from _events(first, where)
     for child in rest:
         yield from _events(child, where.branch())
+
+
+def _split(node: ast.AST) -> tuple[ast.AST, Sequence[ast.AST]]:
+    """What always runs of an ``if``, a conditional expression or ``and``/``or``, and the rest."""
+    if isinstance(node, ast.If):
+        return node.test, (*node.body, *node.orelse)
+    if isinstance(node, ast.IfExp):
+        return node.test, (node.body, node.orelse)
+    assert isinstance(node, ast.BoolOp)  # noqa: S101 - the caller dispatches no other
+    return node.values[0], tuple(node.values[1:])
 
 
 def _start(node: ast.AST) -> Position:

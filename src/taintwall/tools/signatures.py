@@ -33,7 +33,8 @@ def _whole(kind: Static) -> bool:
 
 
 def _tuple(kind: Static) -> bool:
-    return may_fit(kind, ListOf(Scalar.ANY))
+    # may_fit never reads a list type's item: any list may be empty.
+    return may_fit(kind, ListOf(Scalar.ANY))  # pragma: no mutate - see above
 
 
 def _atom(kind: Static) -> bool:
