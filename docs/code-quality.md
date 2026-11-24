@@ -77,8 +77,10 @@ taintwall.core.interpreter
   limits | trace | control        run limits and guard; provenance trace; pc and implicit flows
   arguments | location            call arguments; error locations
 
+taintwall.reader
+  query                           query_reader: the Q-LLM as a tool, a fixed schema out
+
 taintwall.tools
-  reader                          query_reader: the Q-LLM as a tool, a fixed schema out
   registry                        specs with implementations; interpreter tools; a call log per run
   check | calls                   static checker: sure failures, calls, effects | the hook: argument checks and call records
   signatures | scope              what builtins and methods take | which reads come before any binding
@@ -87,8 +89,8 @@ taintwall.tools
   values | schema                 plan values to Python and back | parameter and result types
 
 taintwall.llm
-  openrouter | cache              the OpenRouter backend | replies cached by request hash
-  client                          LLMClient, the structured request and reply, typed errors
+  openrouter | cache | budget     the OpenRouter backend | replies cached by request hash | a ceiling on calls and cost
+  conform | client                whether a reply follows its schema | LLMClient, the request and reply, typed errors
 
 taintwall.core.labels
   value                           Labeled values, typed equality

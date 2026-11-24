@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """An on-disk cache of structured replies, keyed by the request's hash.
 
-The budget rule: a rerun costs nothing. A reply is stored only once it has
-passed the inner client's checks; writes are atomic, and an unreadable entry
+The budget rule: a rerun costs nothing. A reply is stored only once the
+inner client has returned it, so it follows the request's schema (a client's
+promise; ``OpenRouterClient`` checks it), and a reply that did not is never
+stored; writes are atomic, and an unreadable entry
 is a miss, so an interrupted run never breaks the next one. A cached reply
 reports no usage (it cost nothing) and ``cached=True``.
 """

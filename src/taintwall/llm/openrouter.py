@@ -17,6 +17,7 @@ never appears in an error. The transport is a parameter, so tests never
 touch the network.
 """
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -33,6 +34,7 @@ from taintwall.llm.client import (
     TruncatedError,
     Usage,
 )
+from taintwall.llm.conform import conforms
 
 ENDPOINT: Final = "https://openrouter.ai/api/v1/chat/completions"
 TIMEOUT_SECONDS: Final = 120
@@ -55,7 +57,7 @@ def read_key(env_file: Path) -> str:
         MissingKeyError: the file has no such key, or it is empty.
     """
     for line in env_file.read_text(encoding="utf-8").splitlines():
-        name, sep, value = line.strip().partition("=")
+        name, sep, value = line.strip().removeprefix("export ").partition("=")
         if sep and name.strip() == "OPENROUTER_API_KEY":
             key = value.split(" #", 1)[0].strip().strip("'\"")
             if key:
@@ -88,14 +90,31 @@ class OpenRouterClient:
         """Ask the model; the reply object, or a typed ``LLMError``.
 
         Raises:
-            ProviderError: a status other than 200.
+            ProviderError: a status other than 200, or no answer at all.
             TruncatedError: the reply was cut at ``max_tokens``.
-            MalformedReplyError: no JSON object where the reply should be.
+            MalformedReplyError: no JSON object of the request's schema.
         """
-        status, raw = self._transport(ENDPOINT, json.dumps(body(request)).encode(), self._headers)
+        answer = _post(self._transport, json.dumps(body(request)).encode(), self._headers)
+        # Raised outside any handler: no exception rides along as context.
+        if answer is None:
+            raise ProviderError(request.model, None)
+        status, raw = answer
         if status != 200:  # noqa: PLR2004 - HTTP OK
             raise ProviderError(request.model, status)
-        return parse(request.model, raw)
+        reply = parse(request.model, raw)
+        if not conforms(dict(reply.value), request.schema):
+            raise MalformedReplyError(request.model, "not of the schema")
+        return reply
+
+
+def _post(
+    transport: Transport, data: bytes, headers: Mapping[str, str]
+) -> tuple[int, bytes] | None:
+    """The transport's answer, or ``None`` if there was none (refused, timed out, cut off)."""
+    try:
+        return transport(ENDPOINT, data, headers)
+    except (OSError, http.client.HTTPException):
+        return None
 
 
 def body(request: StructuredRequest) -> Json:
@@ -131,26 +150,52 @@ def body(request: StructuredRequest) -> Json:
 def parse(model: str, raw: bytes) -> StructuredReply:
     """The reply object of an OpenRouter response.
 
+    Every error is raised outside the handler that found it: a JSON error
+    carries the whole text it failed on, the reply's, and must not ride along
+    as ``__context__``.
+
     Raises:
         TruncatedError: the reply was cut at the output budget.
         MalformedReplyError: no JSON object where the reply should be.
     """
+    found = _choice(raw)
+    if found is None:
+        raise MalformedReplyError(model, "response")
+    finish, content, usage = found
+    if finish == "length":
+        raise TruncatedError(model)
+    value = _json(content)
+    if value is _NOT_JSON:
+        raise MalformedReplyError(model, "not JSON")
+    if not isinstance(value, dict):
+        raise MalformedReplyError(model, "not an object")
+    return StructuredReply(value, _usage(usage))
+
+
+_NOT_JSON: Final = object()
+
+
+def _choice(raw: bytes) -> tuple[object, object, object] | None:
+    """The first choice's finish reason and content, and the usage; ``None`` if absent."""
     try:
         response = json.loads(raw)
         choice = response["choices"][0]
-        finish = choice.get("finish_reason")
-        content = choice["message"]["content"]
+        return choice.get("finish_reason"), choice["message"]["content"], response.get("usage")
     except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-        raise MalformedReplyError(model, "response") from None
-    if finish == "length":
-        raise TruncatedError(model)
+        return None
+
+
+def _json(content: object) -> object:
+    """``content`` parsed as JSON, or ``_NOT_JSON``."""
     try:
-        value = json.loads(content)
+        return json.loads(content, parse_constant=_no_constant)  # type: ignore[arg-type]
     except (ValueError, TypeError):
-        raise MalformedReplyError(model, "not JSON") from None
-    if not isinstance(value, dict):
-        raise MalformedReplyError(model, "not an object")
-    return StructuredReply(value, _usage(response.get("usage")))
+        return _NOT_JSON
+
+
+def _no_constant(name: str) -> object:
+    """``NaN`` and ``Infinity`` are not JSON: a reply that has them is malformed."""
+    raise ValueError(name)
 
 
 def _usage(usage: object) -> Usage:

@@ -55,7 +55,7 @@ class StructuredReply:
 
 
 class LLMClient(Protocol):
-    """A model behind a structured-output call."""
+    """A model behind a structured-output call; its reply follows the request's schema."""
 
     def structured(self, request: StructuredRequest) -> StructuredReply:
         """Ask ``request``; the reply follows its schema or an ``LLMError`` is raised."""
@@ -81,7 +81,15 @@ class MalformedReplyError(LLMError):
 
 
 class ProviderError(LLMError):
-    """The provider refused or failed the request."""
+    """The provider refused or failed the request, or could not be reached."""
 
-    def __init__(self, model: str, status: int) -> None:
-        super().__init__(f"{model}: provider error (HTTP {status})")
+    def __init__(self, model: str, status: int | None) -> None:
+        what = "provider unreachable" if status is None else f"provider error (HTTP {status})"
+        super().__init__(f"{model}: {what}")
+
+
+class BudgetExceededError(LLMError):
+    """The client has spent what it may: no more calls."""
+
+    def __init__(self, model: str) -> None:
+        super().__init__(f"{model}: budget exceeded, no further calls")

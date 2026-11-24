@@ -3,6 +3,7 @@
 """The LLM layer: OpenRouter requests and replies, typed errors, the response cache."""
 
 import dataclasses
+import http.client
 import http.server
 import json
 import socketserver
@@ -14,6 +15,8 @@ from typing import ClassVar, override
 import pytest
 
 from taintwall.llm import (
+    BudgetedClient,
+    BudgetExceededError,
     CachedClient,
     MalformedReplyError,
     MissingKeyError,
@@ -23,6 +26,7 @@ from taintwall.llm import (
     StructuredRequest,
     TruncatedError,
     Usage,
+    conforms,
     openrouter,
     read_key,
 )
@@ -123,6 +127,14 @@ class TestOpenRouter:
             REQUEST
         ).usage == Usage(cost=2.0)
 
+    def test_a_json_error_does_not_carry_the_reply(self) -> None:
+        with pytest.raises(MalformedReplyError) as err:
+            OpenRouterClient("k", Recorder(200, response("SECRET not json"))).structured(REQUEST)
+        assert err.value.__context__ is None
+        with pytest.raises(MalformedReplyError) as broken:
+            OpenRouterClient("k", Recorder(200, b"SECRET")).structured(REQUEST)
+        assert broken.value.__context__ is None
+
     @pytest.mark.parametrize(
         ("status", "raw", "error", "message"),
         [
@@ -144,6 +156,13 @@ class TestOpenRouter:
             ),
             (200, response(None), MalformedReplyError, "m/x: malformed reply (not JSON)"),
             (200, response("[1]"), MalformedReplyError, "m/x: malformed reply (not an object)"),
+            (200, response('{"a": NaN}'), MalformedReplyError, "m/x: malformed reply (not JSON)"),
+            (
+                200,
+                response('{"a": Infinity}'),
+                MalformedReplyError,
+                "m/x: malformed reply (not JSON)",
+            ),
         ],
     )
     def test_failures_are_typed_and_never_quote_the_reply(
@@ -163,6 +182,8 @@ class TestOpenRouter:
             "# comment\nOTHER=1\nOPENROUTER_API_KEY = 'sk-or-1'  # note\n", encoding="utf-8"
         )
         assert read_key(env) == "sk-or-1"
+        env.write_text("export OPENROUTER_API_KEY=sk-or-2\n", encoding="utf-8")
+        assert read_key(env) == "sk-or-2"
         env.write_text("OPENROUTER_API_KEY=\nX=OPENROUTER_API_KEY\n", encoding="utf-8")
         with pytest.raises(MissingKeyError) as err:
             read_key(env)
@@ -255,3 +276,107 @@ class TestCache:
         with pytest.raises(ProviderError):
             client.structured(REQUEST)
         assert list((tmp_path / "c").iterdir()) == []
+
+
+STRICT = {
+    "type": "object",
+    "properties": {
+        "a": {"type": "string"},
+        "n": {"type": "integer"},
+        "x": {"type": "number"},
+        "ok": {"type": "boolean"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "none": {"type": "null"},
+    },
+    "required": ["a", "n"],
+    "additionalProperties": False,
+}
+
+
+class TestSchemaAndFailures:
+    @pytest.mark.parametrize(
+        ("value", "fits"),
+        [
+            ({"a": "s", "n": 1}, True),
+            ({"a": "s", "n": 1, "x": 1, "ok": True, "tags": ["t"], "none": None}, True),
+            ({"a": "s", "n": 1, "x": 1.5}, True),
+            ({"a": "s"}, False),
+            ({"a": "s", "n": 1, "more": 1}, False),
+            ({"a": 1, "n": 1}, False),
+            ({"a": "s", "n": True}, False),
+            ({"a": "s", "n": 1.0}, False),
+            ({"a": "s", "n": 1, "x": True}, False),
+            ({"a": "s", "n": 1, "tags": [1]}, False),
+            ({"a": "s", "n": 1, "tags": "t"}, False),
+            ({"a": "s", "n": 1, "none": 0}, False),
+            ([], False),
+        ],
+    )
+    def test_a_reply_must_follow_the_schema(self, value: object, fits: bool) -> None:  # noqa: FBT001
+        assert conforms(value, STRICT) is fits
+
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            {"type": "string", "minLength": 1},
+            {"type": "date"},
+            {"type": ["string", "null"]},
+            [],
+            {"type": "object", "properties": []},
+            {"type": "object", "required": "a"},
+        ],
+    )
+    def test_a_schema_it_cannot_check_fits_nothing(self, schema: object) -> None:
+        assert not conforms({"a": "x"}, schema)
+        assert not conforms("x", schema)
+
+    def test_open_objects_take_more_keys(self) -> None:
+        assert conforms({"b": 1}, {"type": "object"})
+        assert conforms({"b": 1}, {"type": "object", "additionalProperties": True})
+
+    def test_a_reply_off_the_schema_is_malformed(self) -> None:
+        request = dataclasses.replace(REQUEST, schema=STRICT)
+        with pytest.raises(MalformedReplyError) as err:
+            OpenRouterClient("k", Recorder(200, response('{"a": "s"}'))).structured(request)
+        assert str(err.value) == "m/x: malformed reply (not of the schema)"
+
+    @pytest.mark.parametrize("failure", [OSError, TimeoutError, http.client.IncompleteRead])
+    def test_no_answer_is_a_typed_error(self, failure: type[Exception]) -> None:
+        def transport(_url: str, _body: bytes, _headers: Mapping[str, str]) -> tuple[int, bytes]:
+            raise failure(
+                b"secret host" if failure is http.client.IncompleteRead else "secret host"
+            )
+
+        with pytest.raises(ProviderError) as err:
+            OpenRouterClient("k", transport).structured(REQUEST)
+        assert str(err.value) == "m/x: provider unreachable"
+        assert err.value.__cause__ is None
+        assert err.value.__context__ is None
+
+
+class TestBudget:
+    def test_calls_and_cost_stop_at_their_limits(self) -> None:
+        transport = Recorder(200, response("{}", usage={"cost": 0.4}))
+        budget = BudgetedClient(OpenRouterClient("k", transport), max_calls=5, max_cost=1.0)
+        for user in ("1", "2", "3"):
+            budget.structured(dataclasses.replace(REQUEST, user=user))
+        assert budget.calls == 3
+        assert budget.cost == pytest.approx(1.2)
+        with pytest.raises(BudgetExceededError) as err:
+            budget.structured(REQUEST)
+        assert str(err.value) == "m/x: budget exceeded, no further calls"
+        assert len(transport.calls) == 3
+        few = BudgetedClient(OpenRouterClient("k", transport), max_calls=1, max_cost=10.0)
+        few.structured(REQUEST)
+        with pytest.raises(BudgetExceededError):
+            few.structured(REQUEST)
+
+    def test_cached_replies_are_free(self, tmp_path: Path) -> None:
+        transport = Recorder(200, response("{}", usage={"cost": 0.4}))
+        cached = CachedClient(OpenRouterClient("k", transport), tmp_path / "c")
+        budget = BudgetedClient(cached, max_calls=1, max_cost=1.0)
+        budget.structured(REQUEST)
+        budget = BudgetedClient(cached, max_calls=1, max_cost=1.0)
+        budget.structured(REQUEST)
+        budget.structured(REQUEST)
+        assert (budget.calls, budget.cost) == (0, 0.0)

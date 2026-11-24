@@ -209,7 +209,15 @@ forbidden_modules = ["taintwall.tools", "taintwall.web3", "taintwall.store"]
 name = "Core (labels, interpreter) depends on no integration layer"
 type = "forbidden"
 source_modules = ["taintwall.core"]
-forbidden_modules = ["taintwall.llm", "taintwall.tools", "taintwall.web3"]
+forbidden_modules = ["taintwall.llm", "taintwall.reader", "taintwall.tools", "taintwall.web3"]
+
+[[tool.importlinter.contracts]]
+# The reader joins tools and the LLM in its own package, so whatever needs
+# tools (the policies of stage 3) never imports a model with them.
+name = "Tools never reach an LLM"
+type = "forbidden"
+source_modules = ["taintwall.tools"]
+forbidden_modules = ["taintwall.llm", "taintwall.reader"]
 
 [[tool.importlinter.contracts]]
 # Allowlist, not denylist: a new subpackage cannot import the mint by default.
@@ -252,16 +260,16 @@ containers = ["taintwall.core.labels"]
 layers = ["value", "label | immutability", "source", "errors"]
 
 [[tool.importlinter.contracts]]
-name = "Tool layers: reader > registry > checker, call log > signatures, scope > inference > specs > values, schema"
+name = "Tool layers: registry > checker, call log > signatures, scope > inference > specs > values, schema"
 type = "layers"
 containers = ["taintwall.tools"]
-layers = ["reader", "registry", "check | calls", "signatures | scope", "infer", "spec", "values | schema"]
+layers = ["registry", "check | calls", "signatures | scope", "infer", "spec", "values | schema"]
 
 [[tool.importlinter.contracts]]
-name = "LLM layers: backends > client"
+name = "LLM layers: backends, cache, budget > schema check, client"
 type = "layers"
 containers = ["taintwall.llm"]
-layers = ["openrouter | cache", "client"]
+layers = ["openrouter | cache | budget", "conform | client"]
 
 [[tool.importlinter.contracts]]
 name = "Subpackages form no import cycles"
@@ -271,7 +279,7 @@ ancestors = ["taintwall"]
 # --- mutmut: mutation testing (nightly, see .github/workflows/mutation.yml) -----
 
 [tool.mutmut]
-paths_to_mutate = ["src/taintwall/core/", "src/taintwall/tools/", "src/taintwall/llm/"]
+paths_to_mutate = ["src/taintwall/core/", "src/taintwall/tools/", "src/taintwall/llm/", "src/taintwall/reader/"]
 also_copy = ["src/taintwall/"]  # the rest of the package, unmutated
 tests_dir = ["tests/"]
 # Tests that read source files check code shape, not behavior, and would

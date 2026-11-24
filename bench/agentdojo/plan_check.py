@@ -4,7 +4,7 @@
 
 Reads the JSON lines written by ``plans.py`` (one file per model). Every plan
 the plan language accepts is checked against the AgentDojo banking tools and
-the two the planner prompt adds (``query_reader``, ``answer``); the report
+the two the planner prompt adds: the real reader (``taintwall.reader``) and ``answer``; the report
 counts, per model, the plans that pass the checker too and the codes of what
 it finds in the rest. Nothing is executed and no model is called.
 
@@ -25,20 +25,8 @@ from registry import spec_for
 from taintwall.core.errors import PlanError
 from taintwall.core.plan import parse_plan
 from taintwall.core.syntax import LANGUAGE_VERSION
-from taintwall.tools import READ_ONLY, Param, RecordOf, Scalar, ToolSpec, check_plan
-
-READER = ToolSpec(
-    "query_reader",
-    "Extract the fields of output_schema from data.",
-    (
-        Param("question", Scalar.STR),
-        Param("data", Scalar.ANY),
-        Param("output_schema", RecordOf("dict", ())),
-    ),
-    RecordOf("dict", ()),
-    READ_ONLY,
-)
-"""The reader as the study's prompt states it: its result has the fields asked for."""
+from taintwall.reader import SPEC as READER
+from taintwall.tools import READ_ONLY, Param, Scalar, ToolSpec, check_plan
 
 ANSWER = ToolSpec("answer", "Tell the user.", (Param("text", Scalar.STR),), Scalar.NONE, READ_ONLY)
 
