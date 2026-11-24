@@ -466,6 +466,26 @@ class TestSchemaAndFailures:
         assert str(err.value) == "m/x: unsupported schema, nothing was sent"
         assert transport.calls == []
 
+    def test_every_keyword_at_once_is_supported(self) -> None:
+        every = {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": True,
+            "items": {},
+            "enum": [{}],
+            "const": {},
+            "anyOf": [{}],
+            "title": "t",
+            "description": "d",
+            "default": {},
+            "examples": [],
+            "deprecated": False,
+            "$comment": "c",
+        }
+        assert supported(every)
+        assert conforms({}, every)
+
     def test_every_allowed_keyword_is_known(self) -> None:
         schema = {
             "type": "object",
@@ -539,7 +559,13 @@ class Flaky:
         self.answers = list(answers)
         self.calls = 0
 
-    def __call__(self, _url: str, _body: bytes, _headers: Mapping[str, str]) -> tuple[int, bytes]:
+    def __call__(self, url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
+        # Every attempt is the same request.
+        assert (url, json.loads(body)["model"], headers["Authorization"]) == (
+            openrouter.ENDPOINT,
+            "m/x",
+            "Bearer k",
+        )
         self.calls += 1
         status = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if status is None:

@@ -43,7 +43,7 @@ def supported(schema: object) -> bool:
     kind = schema.get("type")
     properties = schema.get("properties", {})
     options = schema.get("anyOf", [])
-    additional = schema.get("additionalProperties", True)
+    additional = schema.get("additionalProperties")
     return (
         (kind is None or (isinstance(kind, str) and kind in _KINDS))
         and isinstance(properties, Mapping)
@@ -53,7 +53,7 @@ def supported(schema: object) -> bool:
         and isinstance(options, list)
         and all(map(supported, options))
         and ("items" not in schema or supported(schema["items"]))
-        and (isinstance(additional, bool) or supported(additional))
+        and (additional is None or isinstance(additional, bool) or supported(additional))
     )
 
 
@@ -71,12 +71,12 @@ def _fits(value: object, schema: Mapping[str, object]) -> bool:
 
 def _allowed(value: object, schema: Mapping[str, object]) -> bool:
     """``const``, ``enum`` and ``anyOf``: each holds when absent."""
-    enum: list[object] = schema.get("enum", [value])  # type: ignore[assignment]
-    options: list[Mapping[str, object]] = schema.get("anyOf", [schema])  # type: ignore[assignment]
+    enum: list[object] | None = schema.get("enum")  # type: ignore[assignment]
+    options: list[Mapping[str, object]] | None = schema.get("anyOf")  # type: ignore[assignment]
     return (
         ("const" not in schema or _same(value, schema["const"]))
-        and any(_same(value, item) for item in enum)
-        and ("anyOf" not in schema or any(_fits(value, option) for option in options))
+        and (enum is None or any(_same(value, item) for item in enum))
+        and (options is None or any(_fits(value, option) for option in options))
     )
 
 
@@ -101,7 +101,7 @@ def _object(value: object, schema: Mapping[str, object]) -> bool:
     required: Sequence[str] = schema.get("required", [])  # type: ignore[assignment]
     if type(value) is not dict or not set(required) <= set(value):
         return False
-    additional = schema.get("additionalProperties", True)
+    additional = schema.get("additionalProperties")
     extra = [name for name in value if name not in properties]
     if additional is False and extra:
         return False

@@ -236,7 +236,7 @@ def _usage(usage: object) -> Usage:
     if not isinstance(usage, dict):
         return Usage()
     details = usage.get("prompt_tokens_details")
-    cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
+    cached = details.get("cached_tokens") if isinstance(details, dict) else 0
     return Usage(
         prompt_tokens=_count(usage.get("prompt_tokens")),
         completion_tokens=_count(usage.get("completion_tokens")),
