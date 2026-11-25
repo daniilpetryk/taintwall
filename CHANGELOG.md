@@ -55,6 +55,11 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   of up to three earlier attempts), never after an effect; a call a policy
   refuses ends the run. Tools and policies are built afresh for each
   request (#39).
+- AgentDojo banking through the planner, without policies: utility 56% with
+  Q3's retries and with CaMeL's one shot alike (plain agent 69%); retries cut
+  plan failure under attack from 28% to 22% on the same programs but change no
+  score; ASR 0% as for the plain agent. The reader's all-or-nothing answer
+  costs the most: 3 of 16 tasks ([report](docs/planner-banking.md), #40).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
