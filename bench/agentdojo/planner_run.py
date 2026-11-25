@@ -11,8 +11,9 @@ through data (the reader reads injected text), not a defense:
 
 * utility, and utility and attack success (ASR) under attack, with 95%
   Wilson intervals, as the stage 0 baseline;
-* plan failure rate: tasks where no program ran to the end, by why (static,
-  runtime, effects, planner), and how many attempts each took;
+* plan failure rate: tasks where no program ran to the end, by why
+  (``taintwall.planner.Failure``: static, runtime, effects, policy, planner),
+  and how many attempts each took;
 * with ``--replan 0 0`` CaMeL's one shot, by default Q3's retries.
 
 Every model call goes through taintwall's own LLM layer: a disk cache by

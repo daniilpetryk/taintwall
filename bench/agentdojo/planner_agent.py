@@ -28,7 +28,14 @@ from taintwall.llm import (
     StructuredReply,
     StructuredRequest,
 )
-from taintwall.planner import Outcome, Planner, PlannerModel, Replan
+from taintwall.planner import (
+    PLAN_FIELD,
+    PLAN_SCHEMA_NAME,
+    Outcome,
+    Planner,
+    PlannerModel,
+    Replan,
+)
 from taintwall.reader import reader
 from taintwall.tools import Implementation, ToolSpec
 
@@ -72,8 +79,8 @@ class Watched:
             self.cost += err.usage.cost
             raise
         self.cost += reply.usage.cost
-        if request.schema_name == "plan":
-            self.plans.append(str(reply.value.get("plan")))
+        if request.schema_name == PLAN_SCHEMA_NAME:
+            self.plans.append(str(reply.value.get(PLAN_FIELD)))
         return reply
 
 

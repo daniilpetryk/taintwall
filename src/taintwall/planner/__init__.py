@@ -12,10 +12,12 @@ Modules, from the entry point down (``pyproject.toml`` enforces the order):
 from taintwall.planner.answer import ReservedToolError, answer_tool
 from taintwall.planner.loop import Planner, PlannerModel, Replan
 from taintwall.planner.outcome import Answer, Attempt, Failure, Outcome, Phase
-from taintwall.planner.prompt import PLAN_SCHEMA, SYSTEM, rules
+from taintwall.planner.prompt import PLAN_FIELD, PLAN_SCHEMA, PLAN_SCHEMA_NAME, SYSTEM, rules
 
 __all__ = [
+    "PLAN_FIELD",
     "PLAN_SCHEMA",
+    "PLAN_SCHEMA_NAME",
     "SYSTEM",
     "Answer",
     "Attempt",
