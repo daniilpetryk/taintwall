@@ -829,7 +829,7 @@
       "prs": [
         40
       ],
-      "commit": "f8cd61b",
+      "commit": "f37b7e4",
       "cost_usd": 0.1,
       "title": "The planner on AgentDojo banking, with retries and one shot",
       "changed": "AgentDojo's banking suite through taintwall's planner: the P-LLM writes a program without seeing data, the checker and the interpreter run it, the reader extracts fields from what it reads, and what it answers is scored. No policies yet. Two settings: Q3's retries, Replan(2, 1), and CaMeL's one shot, Replan(0, 0).",
