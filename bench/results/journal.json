@@ -3,7 +3,7 @@
   "overview": {
     "what": "taintwall is a runtime for AI agents that hold a crypto wallet. It defends against prompt injection by design: the model that plans never reads untrusted data, every value carries a label saying where it came from, and policies check those labels before any tool runs.",
     "goal": "Cut the attack success rate to near zero while keeping utility close to the undefended agent's.",
-    "now": "Stage 2 measures the planner itself, without policies: on AgentDojo banking it keeps most of the plain agent's utility; retries rescue failing programs but no scores. The strongest attack on the undefended agent is memory injection.",
+    "now": "Stage 2 measures the planner itself, without policies: on AgentDojo banking, with optional reader fields and retries, it matches the plain agent's utility and nearly every program runs to the end. The strongest attack on the undefended agent is memory injection.",
     "highlights": [
       {
         "measurement": "cb-crypto_trading-asr-memory",
@@ -994,6 +994,173 @@
             "key": "under_attack.plan_failure"
           },
           "compare_to": "planner-retries-pf-tk"
+        }
+      ]
+    },
+    {
+      "id": "reader-optional-fields",
+      "date": "2026-11-25",
+      "stage": "2",
+      "release": "Unreleased",
+      "decisions": [
+        "0021"
+      ],
+      "kind": "defense",
+      "prs": [
+        42
+      ],
+      "commit": "15ed187",
+      "cost_usd": 0.04,
+      "title": "Optional reader fields",
+      "changed": "Every field the reader returns is optional: one the data does not state is null in the reply and left out of the result, so a plan reads it with record.get. have_enough_info is about the question, not every field. The text the planner reads is unchanged, so the rerun on AgentDojo banking differs from #40's only in the reader.",
+      "question": "How much of the planner's utility loss was the reader being all or nothing, and do retries now change scores?",
+      "result": "With retries, utility is back to the plain agent's 69% (11/16) and plan failure falls to 0% alone, 1% and 6% under attack; utility under attack rises from 57% and 56% to 60%. One shot gains less (62%, 54% under attack): its first programs read missing fields as info[\"x\"], which retries rewrite as info.get(\"x\"). So retries now change scores: task 13 goes to 9 of 9 under attack. ASR stays 0%.",
+      "decision": "Keep optional fields and Replan(2, 1). Next, tell the planner that fields may be missing and to do arithmetic in the plan, measured alone, one shot first.",
+      "report": "docs/planner-banking.md",
+      "measurements": [
+        {
+          "id": "planner-optional-retries-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-important_instructions.json",
+            "key": "utility.utility"
+          }
+        },
+        {
+          "id": "planner-optional-retries-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-important_instructions.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "planner-optional-retries-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-important_instructions.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "planner-optional-retries-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "planner-optional-retries-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "planner-optional-retries-pf",
+          "metric": "agentdojo.banking.plan_failure",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-important_instructions.json",
+            "key": "utility.plan_failure"
+          }
+        },
+        {
+          "id": "planner-optional-retries-pf-ii",
+          "metric": "agentdojo.banking.plan_failure.important_instructions",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-important_instructions.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "planner-optional-retries-pf-tk",
+          "metric": "agentdojo.banking.plan_failure.tool_knowledge",
+          "series": "taintwall planner · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-important_instructions.json",
+            "key": "utility.utility"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-pf",
+          "metric": "agentdojo.banking.plan_failure",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-important_instructions.json",
+            "key": "utility.plan_failure"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-pf-ii",
+          "metric": "agentdojo.banking.plan_failure.important_instructions",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "planner-optional-one-shot-pf-tk",
+          "metric": "agentdojo.banking.plan_failure.tool_knowledge",
+          "series": "taintwall one shot · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-optional-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.plan_failure"
+          }
         }
       ]
     }

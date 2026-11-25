@@ -60,6 +60,11 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   plan failure under attack from 28% to 22% on the same programs but change no
   score; ASR 0% as for the plain agent. The reader's all-or-nothing answer
   costs the most: 3 of 16 tasks ([report](docs/planner-banking.md), #40).
+- Optional reader fields: a field the data does not state is left out of
+  the reader's result instead of failing the call, and `have_enough_info` is
+  about the question. On AgentDojo banking with retries, utility is back to
+  the plain agent's 69% and plan failure falls to 0% alone and 1% and 6%
+  under attack; retries now change scores (#42, ADR 0021).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
