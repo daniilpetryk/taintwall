@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Call the reader against the real API once per case: does what tests fake hold?
 
-Four cases on one model: a plain invoice, the same invoice with injections
+Five cases on one model: a plain invoice, the same invoice with injections
 that try to close the data fence (ASCII and fullwidth tags), an address in
-angle brackets (which the reader escapes), and data without the answer
-(``have_enough_info`` false). Replies are cached on disk, so a rerun is
+angle brackets (which the reader escapes), an invoice that states only some
+of the fields asked for (the others are left out), and data without the
+answer (``have_enough_info`` false). Replies are cached on disk, so a rerun is
 free; a ceiling stops the run past ``--max-cost`` dollars.
 
 Usage (from the repo root)::
@@ -31,6 +32,10 @@ CASES = {
         {"iban": "str", "amount": "float"},
     ),
     "angles": ("From: ACME Billing <billing@acme.example>\nPlease pay.", {"email": "str"}),
+    "partial": (
+        "Rent for January: 1100.00. Thank you, your landlord.",
+        {"amount": "float", "iban": "str", "due_date": "str"},
+    ),
     "missing": ("Thanks for your order! It ships soon.", {"iban": "str", "amount": "float"}),
 }
 

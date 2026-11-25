@@ -12,6 +12,7 @@ from taintwall.core.labels import Readers, Source
 from taintwall.core.mint import Mint
 from taintwall.core.plan import parse_plan
 from taintwall.llm import StructuredReply, StructuredRequest
+from taintwall.llm.conform import conforms
 from taintwall.reader import (
     ENOUGH,
     MAX_FIELDS,
@@ -29,7 +30,7 @@ from taintwall.reader import (
     prompt,
     reader,
 )
-from taintwall.tools import READ_ONLY, ListOf, RecordOf, Registry, Scalar, ToolSpec
+from taintwall.tools import READ_ONLY, ListOf, Maybe, RecordOf, Registry, Scalar, ToolSpec
 
 MINT = Mint()
 
@@ -68,14 +69,15 @@ class TestSchema:
         types, schema = compile_schema(
             {"to": "str", "amount": "float", "n": "int", "ok": "bool", "tags": ["str"]}
         )
+        null = {"type": "null"}
         assert schema == {
             "type": "object",
             "properties": {
-                "to": {"type": "string"},
-                "amount": {"type": "number"},
-                "n": {"type": "integer"},
-                "ok": {"type": "boolean"},
-                "tags": {"type": "array", "items": {"type": "string"}},
+                "to": {"anyOf": [{"type": "string"}, null]},
+                "amount": {"anyOf": [{"type": "number"}, null]},
+                "n": {"anyOf": [{"type": "integer"}, null]},
+                "ok": {"anyOf": [{"type": "boolean"}, null]},
+                "tags": {"anyOf": [{"type": "array", "items": {"type": "string"}}, null]},
                 ENOUGH: {"type": "boolean"},
             },
             "required": ["to", "amount", "n", "ok", "tags", ENOUGH],
@@ -84,11 +86,11 @@ class TestSchema:
         assert types == RecordOf(
             "extraction",
             (
-                ("to", Scalar.STR),
-                ("amount", Scalar.FLOAT),
-                ("n", Scalar.INT),
-                ("ok", Scalar.BOOL),
-                ("tags", ListOf(Scalar.STR)),
+                ("to", Maybe(Scalar.STR)),
+                ("amount", Maybe(Scalar.FLOAT)),
+                ("n", Maybe(Scalar.INT)),
+                ("ok", Maybe(Scalar.BOOL)),
+                ("tags", Maybe(ListOf(Scalar.STR))),
                 (ENOUGH, Scalar.BOOL),
             ),
         )
@@ -150,6 +152,13 @@ class TestReply:
         types, _ = compile_schema({"a": "float"})
         assert check_reply({"a": 1, ENOUGH: True}, types) == {"a": 1}
 
+    def test_a_field_the_data_does_not_state_is_left_out(self) -> None:
+        types, schema = compile_schema({"a": "float", "b": ["str"], "c": "str"})
+        reply: dict[str, object] = {"a": None, "b": None, "c": "", ENOUGH: True}
+        assert conforms(reply, schema)
+        assert not conforms({**reply, "a": "x"}, schema)
+        assert check_reply(reply, types) == {"c": ""}  # an empty value is a value
+
     @pytest.mark.parametrize(
         "reply",
         [
@@ -167,9 +176,11 @@ class TestReply:
 
     def test_not_enough_info_is_refused(self) -> None:
         types, _ = compile_schema({"a": "float"})
-        with pytest.raises(NotEnoughInfoError) as err:
-            check_reply({"a": 0.0, ENOUGH: False}, types)
-        assert str(err.value) == "the data does not hold what the schema asks for"
+        replies: list[dict[str, object]] = [{"a": 0.0, ENOUGH: False}, {"a": None, ENOUGH: False}]
+        for reply in replies:
+            with pytest.raises(NotEnoughInfoError) as err:
+                check_reply(reply, types)
+            assert str(err.value) == "the data does not hold what the schema asks for"
 
 
 PLAN = (
@@ -207,6 +218,21 @@ class TestInThePlan:
         sources = amount.label.sources  # type: ignore[attr-defined]
         assert {Source.tool("read_file"), Source.tool(NAME)} <= sources
         assert amount.label.readers is Readers.USER  # type: ignore[attr-defined]
+
+    def test_a_plan_reads_a_missing_field_as_none(self) -> None:
+        plan = (
+            "note = read_file()\n"
+            'info = query_reader("Payment?", note, {"to": "str", "date": "str"})\n'
+            'd = info.get("date")\n'
+            "x = info.to"
+        )
+        variables = run(FakeModel({"to": "GB29", "date": None, ENOUGH: True}), plan)
+        assert variables["d"].value is None  # type: ignore[attr-defined]
+        assert Source.tool("read_file") in variables["d"].label.sources  # type: ignore[attr-defined]
+        with pytest.raises(LabeledPlanError) as err:
+            run(FakeModel({"to": "GB29", "date": None, ENOUGH: True}), plan + "\ny = info.date")
+        assert err.value.code is PlanErrorCode.MISSING_FIELD
+        assert Source.tool("read_file") in err.value.label.sources
 
     def test_public_data_gives_public_fields(self) -> None:
         plan = 'p = read_page()\ninfo = query_reader("Price?", p, {"price": "int"})\nx = info.price'
