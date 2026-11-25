@@ -41,6 +41,7 @@ from typing import Any
 from agentdojo.attacks import load_attack
 from agentdojo.task_suite.load_suites import get_suite
 from bench_common.stats import rate_summary
+from draws import spread
 from planner_agent import PlannerAgent, StopRunError, Watched
 
 from taintwall.llm import BudgetedClient, CachedClient, OpenRouterClient, read_key
@@ -69,6 +70,8 @@ class Pair:
     """Model calls the request made, planner and reader, cached or not."""
     cost: float
     """What this run was billed for them: 0 for replies from the cache."""
+    draw: int = 0
+    """Which draw of the models it was scored in (``--draws``)."""
 
 
 def pair(
@@ -97,7 +100,12 @@ def pair(
     )
 
 
-def pairs(agent: PlannerAgent, suite: Any, args: argparse.Namespace) -> Iterator[Pair]:  # noqa: ANN401
+def pairs(
+    agent: PlannerAgent,
+    suite: Any,  # noqa: ANN401 - AgentDojo's TaskSuite is untyped
+    args: argparse.Namespace,
+    draw: int = 0,
+) -> Iterator[Pair]:
     """Every pair the mode asks for, scored by AgentDojo."""
     user_tasks = [
         suite.get_user_task_by_id(task) for task in _ids(args.user_tasks, suite.user_tasks)
@@ -105,7 +113,8 @@ def pairs(agent: PlannerAgent, suite: Any, args: argparse.Namespace) -> Iterator
     if args.mode in {"utility", "all"}:
         for task in user_tasks:
             utility, _ = suite.run_task_with_pipeline(agent, task, None, {})
-            yield pair(agent, task.ID, None, utility=utility, security=None)
+            scored = pair(agent, task.ID, None, utility=utility, security=None)
+            yield dataclasses.replace(scored, draw=draw)
     if args.mode in {"security", "all"}:
         attack = load_attack(args.attack, suite, agent)
         for task in user_tasks:
@@ -113,7 +122,8 @@ def pairs(agent: PlannerAgent, suite: Any, args: argparse.Namespace) -> Iterator
                 injection = suite.get_injection_task_by_id(injection_id)
                 injections = attack.attack(task, injection)
                 utility, security = suite.run_task_with_pipeline(agent, task, injection, injections)
-                yield pair(agent, task.ID, injection_id, utility=utility, security=security)
+                scored = pair(agent, task.ID, injection_id, utility=utility, security=security)
+                yield dataclasses.replace(scored, draw=draw)
 
 
 def _ids(chosen: Sequence[str] | None, every: Mapping[str, Any]) -> list[str]:
@@ -162,6 +172,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--injection-tasks", nargs="*", default=None)
     parser.add_argument("--max-cost", type=float, default=0.5, help="USD ceiling for this run")
     parser.add_argument("--max-calls", type=int, default=5000)
+    parser.add_argument(
+        "--draws", type=int, default=1, help="run the suite this many times, each a new draw"
+    )
     parser.add_argument("--run-name", default="planner")
     return parser.parse_args(argv)
 
@@ -170,17 +183,46 @@ def main() -> int:
     """Run the planner over the suite; write the summary and every pair to ``bench/results``."""
     args = parse_args()
     run_dir = private_dir(HERE / "runs" / args.run_name)
-    # One cache for every run of the suite: the same request gets the same
-    # reply, so settings compared on it differ only where their requests do
-    # (a one-shot run is the retries run's first attempts, paired).
-    budget = BudgetedClient(
-        CachedClient(OpenRouterClient(read_key(REPO / ".env")), HERE / "runs" / "cache"),
-        max_calls=args.max_calls,
-        max_cost=args.max_cost,
-    )
+    openrouter = OpenRouterClient(read_key(REPO / ".env"))
     suite = get_suite(BENCHMARK_VERSION, args.suite)
-    agent = PlannerAgent(
-        Watched(budget),
+    summary = settings(args)
+    done: list[Pair] = []
+    transcripts: list[dict[str, Any]] = []
+    calls, cost = 0, 0.0
+    for draw in range(args.draws):
+        # One cache for every run of the suite: the same request in the same
+        # draw gets the same reply, so settings compared on it differ only
+        # where their requests do (a one-shot run is the retries run's first
+        # attempts, paired). The ceiling is the whole run's.
+        budget = BudgetedClient(
+            CachedClient(openrouter, HERE / "runs" / "cache", draw=draw),
+            max_calls=args.max_calls - calls,
+            max_cost=args.max_cost - cost,
+        )
+        agent = _agent(args, suite, budget)
+        try:
+            done.extend(pairs(agent, suite, args, draw))
+        except StopRunError as err:
+            summary["stopped"] = str(err)
+        finally:
+            calls, cost = calls + budget.calls, cost + budget.cost
+            transcripts.extend(agent.transcripts)
+            summary["refused_functions"] = agent.refused
+        if "stopped" in summary:
+            break
+    summary.update(summarize(done))
+    if args.draws > 1:
+        per_draw = [summarize([p for p in done if p.draw == k]) for k in range(args.draws)]
+        summary["spread"] = spread(per_draw)
+    summary["meter"] = {"calls": calls, "cost": cost}
+    write(args, run_dir, summary, done, transcripts)
+    return 1 if "stopped" in summary else 0
+
+
+def _agent(args: argparse.Namespace, suite: Any, client: BudgetedClient) -> PlannerAgent:  # noqa: ANN401
+    """The planner as AgentDojo's pipeline, with this run's settings."""
+    return PlannerAgent(
+        Watched(client),
         PlannerModel(args.model, args.reasoning_effort or None),
         reader_model=args.reader_model,
         reader_effort=args.reader_reasoning_effort or None,
@@ -189,17 +231,6 @@ def main() -> int:
         suite=suite,
         suite_name=args.suite,
     )
-    done: list[Pair] = []
-    summary = settings(args)
-    try:
-        done.extend(pairs(agent, suite, args))
-    except StopRunError as err:
-        summary["stopped"] = str(err)
-    summary["refused_functions"] = agent.refused
-    summary.update(summarize(done))
-    summary["meter"] = {"calls": budget.calls, "cost": budget.cost}
-    write(args, run_dir, summary, done, agent.transcripts)
-    return 1 if "stopped" in summary else 0
 
 
 def settings(args: argparse.Namespace) -> dict[str, Any]:
@@ -214,6 +245,7 @@ def settings(args: argparse.Namespace) -> dict[str, Any]:
         "suite": args.suite,
         "version": BENCHMARK_VERSION,
         "attack": args.attack if args.mode != "utility" else None,
+        "draws": args.draws,
     }
 
 

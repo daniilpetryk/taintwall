@@ -25,25 +25,38 @@ from taintwall.llm.client import LLMClient, StructuredReply, StructuredRequest
 from taintwall.llm.conform import conforms
 
 
-def key(request: StructuredRequest) -> str:
-    """The request's hash: every field, canonically ordered."""
-    canonical = json.dumps(dataclasses.asdict(request), sort_keys=True)
+def key(request: StructuredRequest, draw: int = 0) -> str:
+    """The request's hash: every field, canonically ordered, and the draw if not the first.
+
+    Draw 0 hashes the request alone, so a cache written before draws existed
+    still answers it.
+    """
+    fields = dataclasses.asdict(request)
+    if draw:
+        fields["draw"] = draw
+    canonical = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class CachedClient:
-    """An ``LLMClient`` that answers a request it has seen from disk."""
+    """An ``LLMClient`` that answers a request it has seen from disk.
 
-    def __init__(self, inner: LLMClient, directory: Path) -> None:
+    ``draw`` keeps several replies to one request apart: a model samples, so
+    measuring how much its answers vary takes several draws of each, and the
+    cache keeps every draw as its own entry (``key``).
+    """
+
+    def __init__(self, inner: LLMClient, directory: Path, *, draw: int = 0) -> None:
         self._inner = inner
         self._directory = directory
+        self._draw = draw
         # Created private, then made private if it already existed.
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)  # pragma: no mutate - see chmod
         directory.chmod(0o700)
 
     def structured(self, request: StructuredRequest) -> StructuredReply:
         """The cached reply, or the inner client's, then cached."""
-        path = self._directory / f"{key(request)}.json"
+        path = self._directory / f"{key(request, self._draw)}.json"
         value = _read(path)
         if value is not None and conforms(value, request.schema):
             return StructuredReply(value, cached=True)

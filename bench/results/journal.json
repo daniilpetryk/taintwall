@@ -1176,7 +1176,7 @@
       "prs": [
         44
       ],
-      "commit": "",
+      "commit": "e01fe96",
       "cost_usd": 0.08,
       "title": "Hints in the planner's prompt about reader fields",
       "changed": "Two hints where the planner's prompt introduces query_reader: read every field with info.get and handle None; do calculations in the program, asking the reader for the values. Run with both hints and with the info.get hint alone, retries and one shot, on AgentDojo banking. Not adopted: the prompt stays as #42 measured it.",

@@ -54,10 +54,10 @@ bench-plans: ## Stage 2 study: plans planners write for banking (spends credit; 
 	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python plans.py \
 		--models $(or $(MODELS),anthropic/claude-haiku-5.5) --max-cost $(or $(MAX_COST),0.2) --run-name $(or $(RUN),natural) $(if $(RULES),--rules)
 
-bench-planner: ## Stage 2: AgentDojo banking through the planner, no policies (spends credit; MODE, ATTACK, REPLAN, MAX_COST)
+bench-planner: ## Stage 2: AgentDojo banking through the planner, no policies (spends credit; MODE, ATTACK, REPLAN, DRAWS, MAX_COST)
 	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python planner_run.py \
 		--mode $(or $(MODE),all) --attack $(or $(ATTACK),important_instructions) --replan $(or $(REPLAN),2 1) \
-		--max-cost $(or $(MAX_COST),1.0) --run-name $(or $(RUN),planner-haiku-5.5)
+		--max-cost $(or $(MAX_COST),1.0) --draws $(or $(DRAWS),1) --run-name $(or $(RUN),planner-haiku-5.5)
 
 bench-census: ## Constructs used and rejection reasons of collected plans (no model calls; RUN)
 	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python plan_census.py \

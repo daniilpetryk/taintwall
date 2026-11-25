@@ -3,6 +3,7 @@
 """The LLM layer: OpenRouter requests and replies, typed errors, the response cache."""
 
 import dataclasses
+import hashlib
 import http.client
 import http.server
 import json
@@ -291,6 +292,20 @@ class TestCache:
         ]
         keys = {key(REQUEST), *(key(request) for request in variations)}
         assert len(keys) == 8
+
+    def test_each_draw_is_its_own_entry(self, tmp_path: Path) -> None:
+        canonical = json.dumps(dataclasses.asdict(REQUEST), sort_keys=True)
+        # Draw 0 is the request alone: a cache written before draws still answers.
+        assert key(REQUEST) == key(REQUEST, 0) == hashlib.sha256(canonical.encode()).hexdigest()
+        assert len({key(REQUEST, 0), key(REQUEST, 1), key(REQUEST, 2)}) == 3
+        transport = Recorder(200, response('{"a": 1}'))
+        for draw in (0, 1, 0, 1):
+            CachedClient(OpenRouterClient("k", transport), tmp_path / "c", draw=draw).structured(
+                REQUEST
+            )
+        assert len(transport.calls) == 2
+        names = {path.name for path in (tmp_path / "c").iterdir()}
+        assert names == {f"{key(REQUEST, 0)}.json", f"{key(REQUEST, 1)}.json"}
 
     @pytest.mark.parametrize("stored", ["{broken", "[1]", b"\xff\xfe"])
     def test_an_unreadable_entry_is_a_miss(self, tmp_path: Path, stored: str | bytes) -> None:
