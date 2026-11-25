@@ -134,8 +134,18 @@ def registry(
 
     Returns the registry and the functions left out, each with why.
     """
+    found, refused = entries(suite, environment, suite_name)
+    return Registry(found), refused
+
+
+def entries(
+    suite: Any,  # noqa: ANN401 - untyped
+    environment: Any,  # noqa: ANN401 - untyped
+    suite_name: str,
+) -> tuple[list[tuple[ToolSpec, Implementation]], Mapping[str, str]]:
+    """The registry's entries, for a caller that adds its own (the planner's)."""
     runtime = FunctionsRuntime(suite.tools)
-    entries = []
+    found = []
     refused: dict[str, str] = {}
     for function in suite.tools:
         try:
@@ -143,8 +153,8 @@ def registry(
         except UnsupportedFunctionError as err:
             refused[function.name] = str(err)
             continue
-        entries.append((spec, implementation(runtime, environment, function)))
-    return Registry(entries), refused
+        found.append((spec, implementation(runtime, environment, function)))
+    return found, refused
 
 
 def implementation(runtime: Any, environment: Any, function: Any) -> Implementation:  # noqa: ANN401
