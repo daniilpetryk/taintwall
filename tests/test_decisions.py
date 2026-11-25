@@ -10,7 +10,7 @@ import pytest
 DECISIONS = Path(__file__).resolve().parent.parent / "docs" / "decisions"
 RECORDS = sorted(DECISIONS.glob("[0-9][0-9][0-9][0-9]-*.md"))
 INDEX = (DECISIONS / "README.md").read_text(encoding="utf-8")
-STATUSES = {"proposed", "accepted", "superseded", "deprecated"}
+STATUSES = {"proposed", "accepted", "rejected", "superseded", "deprecated"}
 
 
 def test_numbers_have_no_gaps() -> None:

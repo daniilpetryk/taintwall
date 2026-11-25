@@ -1163,6 +1163,317 @@
           }
         }
       ]
+    },
+    {
+      "id": "planner-prompt-hints",
+      "date": "2026-11-25",
+      "stage": "2",
+      "release": "Unreleased",
+      "decisions": [
+        "0022"
+      ],
+      "kind": "study",
+      "prs": [
+        44
+      ],
+      "commit": "",
+      "cost_usd": 0.08,
+      "title": "Hints in the planner's prompt about reader fields",
+      "changed": "Two hints where the planner's prompt introduces query_reader: read every field with info.get and handle None; do calculations in the program, asking the reader for the values. Run with both hints and with the info.get hint alone, retries and one shot, on AgentDojo banking. Not adopted: the prompt stays as #42 measured it.",
+      "question": "Do the hints fix one shot's MISSING_FIELD failures without costing utility?",
+      "result": "The info.get hint removes MISSING_FIELD from first programs, but utility falls: with retries 9 and 8 of 16 against 11 for #42's prompt, under attack 81 and 72 of 144 against 87. A new prompt draws new programs for every task; they differ in ways the hints do not touch (the calculation hint moves matching into code that cannot know AgentDojo's \"me\"; others use list.append and other constructs the language lacks). With one program per task the effective sample is 16, and three prompts gave 11, 9 and 8: noise between draws.",
+      "decision": "Keep #42's prompt. Judge planner-prompt changes over several programs per task: a sample index in the request, measured first on the current prompt.",
+      "report": "docs/planner-banking.md",
+      "measurements": [
+        {
+          "id": "prompt-hints-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-important_instructions.json",
+            "key": "utility.utility"
+          }
+        },
+        {
+          "id": "prompt-hints-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-important_instructions.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-hints-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-important_instructions.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-hints-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-hints-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-hints-pf",
+          "metric": "agentdojo.banking.plan_failure",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-important_instructions.json",
+            "key": "utility.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-hints-pf-ii",
+          "metric": "agentdojo.banking.plan_failure.important_instructions",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-important_instructions.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-hints-pf-tk",
+          "metric": "agentdojo.banking.plan_failure.tool_knowledge",
+          "series": "taintwall planner, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-important_instructions.json",
+            "key": "utility.utility"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-pf",
+          "metric": "agentdojo.banking.plan_failure",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-important_instructions.json",
+            "key": "utility.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-pf-ii",
+          "metric": "agentdojo.banking.plan_failure.important_instructions",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-hints-one-shot-pf-tk",
+          "metric": "agentdojo.banking.plan_failure.tool_knowledge",
+          "series": "taintwall one shot, both hints · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-guided-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-get-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-important_instructions.json",
+            "key": "utility.utility"
+          }
+        },
+        {
+          "id": "prompt-get-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-important_instructions.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-get-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-important_instructions.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-get-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-get-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-get-pf",
+          "metric": "agentdojo.banking.plan_failure",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-important_instructions.json",
+            "key": "utility.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-get-pf-ii",
+          "metric": "agentdojo.banking.plan_failure.important_instructions",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-important_instructions.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-get-pf-tk",
+          "metric": "agentdojo.banking.plan_failure.tool_knowledge",
+          "series": "taintwall planner, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-retries/summary-all-tool_knowledge.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-utility",
+          "metric": "agentdojo.banking.utility",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-important_instructions.json",
+            "key": "utility.utility"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-uua-ii",
+          "metric": "agentdojo.banking.utility_under_attack.important_instructions",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-asr-ii",
+          "metric": "agentdojo.banking.asr.important_instructions",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-uua-tk",
+          "metric": "agentdojo.banking.utility_under_attack.tool_knowledge",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.utility"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-asr-tk",
+          "metric": "agentdojo.banking.asr.tool_knowledge",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.asr"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-pf",
+          "metric": "agentdojo.banking.plan_failure",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-important_instructions.json",
+            "key": "utility.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-pf-ii",
+          "metric": "agentdojo.banking.plan_failure.important_instructions",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-important_instructions.json",
+            "key": "under_attack.plan_failure"
+          }
+        },
+        {
+          "id": "prompt-get-one-shot-pf-tk",
+          "metric": "agentdojo.banking.plan_failure.tool_knowledge",
+          "series": "taintwall one shot, get hint · Haiku 5.5",
+          "source": {
+            "summary": "bench/results/agentdojo/planner-haiku-5.5-get-one-shot/summary-all-tool_knowledge.json",
+            "key": "under_attack.plan_failure"
+          }
+        }
+      ]
     }
   ]
 }

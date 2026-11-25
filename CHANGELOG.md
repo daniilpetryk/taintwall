@@ -65,6 +65,12 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   about the question. On AgentDojo banking with retries, utility is back to
   the plain agent's 69% and plan failure falls to 0% alone and 1% and 6%
   under attack; retries now change scores (#42, ADR 0021).
+- A study of two hints in the planner's prompt (read reader fields with
+  `info.get`, calculate in the program): the first removes `MISSING_FIELD`
+  from first programs, but three prompts gave 11, 9 and 8 of 16 tasks, which
+  is noise between draws of the planner on one program per task. Not
+  adopted; planner-prompt changes wait for several draws per task (#44, ADR
+  0022).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
