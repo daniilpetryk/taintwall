@@ -134,12 +134,46 @@ cost **$0.04**, all of it reader calls and the retries they led to.
     "an empty string for any field not mentioned", and the reader, told to
     answer `null`, followed its own prompt.
 
+## Hints in the planner's prompt (not adopted)
+
+The two follow-ups #42 named were tried next ([ADR
+0022](decisions/0022-planner-prompt-hints.md)): where the prompt introduces
+`query_reader`, tell the planner to read every field with `info.get` and to
+do calculations in the program. They change the planner's prompt, so every
+plan is drawn anew; each variant's one shot shares a cache with its retries,
+but no variant is paired with another. The runs cost **$0.08**.
+
+| Planner prompt | Utility, retries | Under attack (ii / tk), retries | Plan failure under attack, retries | Utility, one shot | Under attack, one shot |
+|---|---|---|---|---|---|
+| #42, no hints | 69% (11/16) | 60% / 60% | 1% / 6% | 62% (10/16) | 54% / 54% |
+| both hints | 56% (9/16) | 56% / 56% | 8% / 15% | 50% (8/16) | 50% / 50% |
+| `info.get` hint only | 50% (8/16) [28–72] | 50% / 50% | 1% / 7% | 38% (6/16) | 38% / 38% |
+
+- **The `info.get` hint works for what it targets:** no first program reads a
+  missing field as `info["x"]` any more.
+- **The utility moves anyway, and not because of the hints.**
+  - The calculation hint moved matching into the program, where a planner
+    that never sees a transaction filters by the user's IBAN instead of
+    AgentDojo's `"me"`. Tasks 7 and 15 fail that way, and task 10's plan
+    puts the IBAN in the reader's question, where the reader cannot match it.
+  - Other new plans demand a due date the bill does not state (task 0), or
+    use what the language lacks: `list.append` (3 of the 5 tasks one shot
+    fails before running with the `info.get` hint alone), `x[i] = v`, and
+    an `is` comparison other than with `None`.
+  - Three prompts gave 11, 9 and 8 of 16 with retries.
+- **One draw per task cannot judge a prompt.** Every attacked pair of a task
+  runs the same program, so the effective sample is 16 programs, and two
+  draws of the planner on the same 16 tasks differ by more than these hints
+  can add. The prompt stays as #42 measured it.
+
 ## Decisions
 
 - ~~Let the reader return what it found~~: done in #42 (above).
-- Tell the planner that reader fields may be missing (`info.get`) and to do
-  arithmetic in the plan rather than in a reader question; measure it alone,
-  one shot first, since that is where it should show.
+- ~~Tell the planner that reader fields may be missing and to calculate in
+  the program~~: measured and not adopted (above, ADR 0022). Before the next
+  change to the planner's prompt, let the runner draw several programs per
+  task (a sample index in the request, so the cache keeps each draw), and
+  measure the spread on the current prompt first.
 - Keep `Replan(2, 1)` as the default: with optional fields it lifts utility
   by 1 task alone and 9 of 144 pairs under attack over one shot, at 33% more
   calls. Measure `Replan(0, 0)` on the same cache in every run, and judge
