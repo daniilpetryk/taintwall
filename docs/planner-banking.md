@@ -20,6 +20,9 @@ differ only where a retry happened, and the comparison is paired.
 
 ## Summary
 
+These are the first runs (#40). With optional reader fields (#42), retries
+reach the plain agent's utility: see [Optional reader fields](#optional-reader-fields-42).
+
 | | Plain agent (baseline) | Planner, retries | Planner, one shot |
 |---|---|---|---|
 | Utility | 69% (11/16) [44–86] | 56% (9/16) [33–77] | 56% (9/16) [33–77] |
