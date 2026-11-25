@@ -6,7 +6,8 @@ import argparse
 
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
-from planner_run import Pair, PlannerAgent, StopRunError, Watched, pairs, parse_args, summarize
+from planner_agent import PlannerAgent, StopRunError, Watched
+from planner_run import Pair, pairs, parse_args, summarize
 
 from taintwall.llm import ProviderError, StructuredReply, StructuredRequest, Usage
 from taintwall.planner import PlannerModel, Replan

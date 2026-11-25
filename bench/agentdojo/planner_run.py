@@ -36,139 +36,18 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
 from agentdojo.attacks import load_attack
-from agentdojo.functions_runtime import EmptyEnv, Env, FunctionsRuntime
-from agentdojo.models import MODEL_NAMES
 from agentdojo.task_suite.load_suites import get_suite
-from agentdojo.types import ChatMessage, text_content_block_from_string
-from bench_common.naming import prose_name
 from bench_common.stats import rate_summary
-from registry import entries
+from planner_agent import PlannerAgent, StopRunError, Watched
 
-from taintwall.core.mint import Mint
-from taintwall.llm import (
-    BudgetedClient,
-    BudgetExceededError,
-    CachedClient,
-    LLMClient,
-    OpenRouterClient,
-    ProviderError,
-    StructuredReply,
-    StructuredRequest,
-    read_key,
-)
-from taintwall.planner import Outcome, Planner, PlannerModel, Replan
-from taintwall.reader import reader
-from taintwall.tools import Implementation, ToolSpec
+from taintwall.llm import BudgetedClient, CachedClient, OpenRouterClient, read_key
+from taintwall.planner import PlannerModel, Replan
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 RESULTS = REPO / "bench" / "results" / "agentdojo"
 BENCHMARK_VERSION = "v1.2.2"
-READER_CALLS = 10
-"""Reader calls per request: banking tasks read a file or a few transactions."""
-
-
-class StopRunError(RuntimeError):
-    """The provider failed or the budget is spent: the pair must not be scored."""
-
-
-class Watched:
-    """An ``LLMClient`` that remembers a failure that must stop the run.
-
-    The planner ends a request on a model error and the reader turns one
-    into a failed tool call, so neither reaches the runner: this does.
-    """
-
-    def __init__(self, inner: LLMClient) -> None:
-        self._inner = inner
-        self.stop: str | None = None
-        self.plans: list[str] = []
-        """Every program the planner sent, for the run's transcripts."""
-
-    def structured(self, request: StructuredRequest) -> StructuredReply:
-        """The inner reply; a provider failure or a spent budget is noted, then raised."""
-        try:
-            reply = self._inner.structured(request)
-        except (ProviderError, BudgetExceededError) as err:
-            self.stop = self.stop or str(err)
-            raise
-        if request.schema_name == "plan":
-            self.plans.append(str(reply.value.get("plan")))
-        return reply
-
-
-class PlannerAgent(BasePipelineElement):  # type: ignore[misc]  # AgentDojo is untyped
-    """The planner as an AgentDojo pipeline: the prompt in, the answer out."""
-
-    def __init__(  # noqa: PLR0913 - the run's settings
-        self,
-        client: Watched,
-        planner: PlannerModel,
-        *,
-        reader_model: str,
-        replan: Replan,
-        suite: Any,  # noqa: ANN401 - AgentDojo's TaskSuite is untyped
-        suite_name: str,
-    ) -> None:
-        self._client = client
-        self._planner = planner
-        self._reader_model = reader_model
-        self._replan = replan
-        self._suite = suite
-        self._suite_name = suite_name
-        self._mint = Mint()
-        self.name = planner.name.rsplit("/", 1)[-1] + "-taintwall"
-        # The important_instructions attack addresses the model by name.
-        MODEL_NAMES.setdefault(self.name, prose_name(planner.name))
-        self.outcome: Outcome | None = None
-        self.transcripts: list[dict[str, Any]] = []
-        """What each query's planner wrote and said: kept in ``runs/``, not committed."""
-
-    def query(
-        self,
-        query: str,
-        runtime: FunctionsRuntime,  # noqa: ARG002 - the registry builds its own
-        env: Env = EmptyEnv(),  # noqa: B008 - AgentDojo's signature
-        messages: Sequence[ChatMessage] = (),
-        extra_args: dict[str, Any] = {},  # noqa: B006 - AgentDojo's signature
-    ) -> tuple[str, FunctionsRuntime, Env, Sequence[ChatMessage], dict[str, Any]]:
-        """Plan and run ``query`` against ``env``; reply with what the plan answered."""
-
-        def tools() -> list[tuple[ToolSpec, Implementation]]:
-            found, _ = entries(self._suite, env, self._suite_name)
-            ask = reader(
-                self._client, self._reader_model, max_calls=READER_CALLS, reasoning_effort="low"
-            )
-            return [*found, ask]
-
-        planner = Planner(self._client, self._planner, tools, replan=self._replan)
-        self._client.plans.clear()
-        self.outcome = planner.run(query, requester=self._mint.owner(), mint=self._mint)
-        if self._client.stop is not None:
-            raise StopRunError(self._client.stop)
-        self.transcripts.append(
-            {
-                "query": query,
-                "plans": list(self._client.plans),
-                "errors": [[str(error) for error in a.errors] for a in self.outcome.attempts],
-                "failure": self.outcome.failure,
-                "answers": [answer.text for answer in self.outcome.answers],
-            }
-        )
-        # Always an assistant reply, even an empty one: with none, AgentDojo
-        # would run the task again.
-        reply = "\n".join(answer.text for answer in self.outcome.answers)
-        said: list[ChatMessage] = [
-            {"role": "user", "content": [text_content_block_from_string(query)]},
-            {
-                "role": "assistant",
-                "content": [text_content_block_from_string(reply)],
-                "tool_calls": None,
-            },
-        ]
-        return query, FunctionsRuntime(self._suite.tools), env, [*messages, *said], extra_args
 
 
 @dataclasses.dataclass(frozen=True)
@@ -286,12 +165,10 @@ def main() -> int:
         max_calls=args.max_calls,
         max_cost=args.max_cost,
     )
-    client = Watched(budget)
     suite = get_suite(BENCHMARK_VERSION, args.suite)
-    model = PlannerModel(args.model, args.reasoning_effort or None)
     agent = PlannerAgent(
-        client,
-        model,
+        Watched(budget),
+        PlannerModel(args.model, args.reasoning_effort or None),
         reader_model=args.reader_model,
         replan=Replan(*args.replan),
         suite=suite,
@@ -312,6 +189,18 @@ def main() -> int:
         summary["stopped"] = str(err)
     summary.update(summarize(done))
     summary["meter"] = {"calls": budget.calls, "cost": budget.cost}
+    write(args, run_dir, summary, done, agent.transcripts)
+    return 1 if "stopped" in summary else 0
+
+
+def write(
+    args: argparse.Namespace,
+    run_dir: Path,
+    summary: dict[str, Any],
+    done: Sequence[Pair],
+    transcripts: Sequence[dict[str, Any]],
+) -> None:
+    """The summary and the pairs to ``bench/results``; the transcripts to ``runs/``."""
     suffix = args.mode if args.mode == "utility" else f"{args.mode}-{args.attack}"
     out = RESULTS / args.run_name / f"summary-{suffix}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -321,10 +210,9 @@ def main() -> int:
     )
     # Plans and answers may quote the task's data: they stay in runs/.
     (run_dir / f"transcripts-{suffix}.jsonl").write_text(
-        "".join(json.dumps(t) + "\n" for t in agent.transcripts), encoding="utf-8"
+        "".join(json.dumps(t) + "\n" for t in transcripts), encoding="utf-8"
     )
     print(json.dumps(summary, indent=2))  # noqa: T201 - CLI output
-    return 1 if "stopped" in summary else 0
 
 
 if __name__ == "__main__":

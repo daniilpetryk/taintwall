@@ -27,6 +27,11 @@ measured. A new result file without a journal entry fails
 `tests/test_journal.py`; so does a `census.json` that no longer matches its
 plans.
 
+`agentdojo/planner-*/` holds taintwall's own runs (stage 2 on): the same
+summaries, with plan failures by cause, and one line per pair with what the
+planner did (`failure`, the failed `attempts` as phase and error code,
+`answered`, `cost`). See [`docs/planner-banking.md`](../../docs/planner-banking.md).
+
 `agentdojo/plans/<run>/` holds a study, not a baseline: the plans five
 models wrote for the banking tasks (one JSON line per task with the prompt,
 the reply, the extracted code, the finish reason and token counts), the
