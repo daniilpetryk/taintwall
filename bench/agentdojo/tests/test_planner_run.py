@@ -3,11 +3,12 @@
 """The planner as an AgentDojo pipeline, with a scripted model: no calls are made."""
 
 import argparse
+from pathlib import Path
 
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
 from planner_agent import PlannerAgent, StopRunError, Watched
-from planner_run import Pair, pairs, parse_args, settings, summarize
+from planner_run import Pair, pairs, parse_args, private_dir, settings, summarize, write_private
 
 from taintwall.llm import ProviderError, StructuredReply, StructuredRequest, TruncatedError, Usage
 from taintwall.planner import PlannerModel, Replan
@@ -192,3 +193,16 @@ def test_the_settings_name_everything_that_changes_the_numbers() -> None:
     assert (chosen["reader_reasoning_effort"], chosen["reader_calls"]) == ("low", 10)
     assert (chosen["replan"], chosen["attack"]) == ([0, 0], None)
     assert settings(args("--mode", "all"))["attack"] == "important_instructions"
+
+
+def test_transcripts_are_the_owners_alone(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "r"
+    run_dir.mkdir(parents=True, mode=0o755)
+    assert private_dir(run_dir) == run_dir
+    assert run_dir.stat().st_mode & 0o777 == 0o700
+    path = run_dir / "transcripts.jsonl"
+    path.write_text("old", encoding="utf-8")
+    path.chmod(0o644)
+    write_private(path, '{"answers": ["Your balance is 1810.00"]}\n')
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.read_text(encoding="utf-8") == '{"answers": ["Your balance is 1810.00"]}\n'

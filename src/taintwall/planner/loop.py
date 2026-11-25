@@ -22,7 +22,7 @@ run: the budget is the model's (``PlannerModel``), not the loop's.
 import dataclasses
 import textwrap
 from collections.abc import Callable, Iterable, Sequence
-from typing import Final, Unpack
+from typing import Unpack
 
 from taintwall.core.errors import PlanError
 from taintwall.core.interpreter import (
@@ -60,9 +60,6 @@ class Replan:
 
     static_retries: int = 2
     runtime_retries: int = 1
-
-
-PLAN_FIELD: Final = "plan"
 
 
 class Planner:
@@ -150,7 +147,7 @@ class Planner:
             model=self._model.name,
             system=run.system,
             user=run.user,
-            schema_name="plan",
+            schema_name=prompt.PLAN_SCHEMA_NAME,
             schema=prompt.PLAN_SCHEMA,
             max_tokens=self._model.max_tokens,
             reasoning_effort=self._model.reasoning_effort,
@@ -160,7 +157,7 @@ class Planner:
         if isinstance(reply, LLMError):
             run.error = reply
             return None
-        return _strip_fence(str(reply.value[PLAN_FIELD]))
+        return _strip_fence(str(reply.value[prompt.PLAN_FIELD]))
 
 
 def _ask(client: LLMClient, request: StructuredRequest) -> StructuredReply | LLMError:

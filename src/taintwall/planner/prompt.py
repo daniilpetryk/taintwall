@@ -17,16 +17,22 @@ from typing import Final
 from taintwall.core.errors import PlanError
 from taintwall.core.interpreter import BUILTINS
 from taintwall.core.syntax import STRING_METHODS
+from taintwall.reader import NAME as READER_NAME
 
-READER_TOOL: Final = "query_reader"
+READER_TOOL: Final = READER_NAME
 """The reader's tool name: the prompt mentions it only when it is there."""
+
+PLAN_SCHEMA_NAME: Final = "plan"
+"""The planner's requests by schema name: how a client tells them from the reader's."""
+
+PLAN_FIELD: Final = "plan"
 
 PLAN_SCHEMA: Final = {
     "type": "object",
     "properties": {
-        "plan": {"type": "string", "description": "The program's Python source."},
+        PLAN_FIELD: {"type": "string", "description": "The program's Python source."},
     },
-    "required": ["plan"],
+    "required": [PLAN_FIELD],
     "additionalProperties": False,
 }
 """The planner's reply: one field, the program."""

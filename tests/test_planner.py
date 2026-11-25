@@ -347,6 +347,44 @@ def test_a_planner_runs_each_request_with_fresh_tools() -> None:
     assert "pass it to `query_reader`" in model.systems[0]
 
 
+def test_a_field_the_reader_leaves_out_is_retried_with_get() -> None:
+    first = 'n = note()\ninfo = query_reader("Due?", n, {"date": "str"})\nanswer(info.date)'
+    second = (
+        'n = note()\ninfo = query_reader("Due?", n, {"date": "str"})\n'
+        'answer(info.get("date") or "no date")'
+    )
+
+    class Model:
+        def __init__(self) -> None:
+            self.plans = [first, second]
+            self.users: list[str] = []
+
+        def structured(self, request: StructuredRequest) -> StructuredReply:
+            if request.schema_name == "plan":
+                self.users.append(request.user)
+                return StructuredReply({"plan": self.plans.pop(0)})
+            return StructuredReply({"date": None, ENOUGH: True})  # the data states no date
+
+    model = Model()
+
+    def fresh() -> list[tuple[ToolSpec, Implementation]]:
+        note = ToolSpec("note", "N.", (), Scalar.STR, READ_ONLY)
+        return [reader(model, "r", max_calls=2, reasoning_effort=None), (note, lambda: INJECTION)]
+
+    outcome = Planner(model, MODEL, fresh).run("Due?", requester=MINT.owner(), mint=MINT)
+    assert [answer.text for answer in outcome.answers] == ["no date"]
+    ((phase, error),) = [(a.phase, a.errors[0]) for a in outcome.attempts]
+    assert (phase, error.code, error.line, error.detail) == (
+        "run",
+        PlanErrorCode.MISSING_FIELD,
+        3,
+        "date",
+    )
+    assert Source.tool("note") in outcome.attempts[0].label.sources  # type: ignore[union-attr]
+    assert "- line 3: missing_field (date)" in model.users[1]
+    assert INJECTION not in model.users[1]
+
+
 def test_the_reader_is_mentioned_only_when_it_is_there() -> None:
     model = FakePlanner(GOOD)
     plan(model)

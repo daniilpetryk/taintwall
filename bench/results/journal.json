@@ -1009,7 +1009,7 @@
       "prs": [
         42
       ],
-      "commit": "15ed187",
+      "commit": "4f43ab8",
       "cost_usd": 0.04,
       "title": "Optional reader fields",
       "changed": "Every field the reader returns is optional: one the data does not state is null in the reply and left out of the result, so a plan reads it with record.get. have_enough_info is about the question, not every field. The text the planner reads is unchanged, so the rerun on AgentDojo banking differs from #40's only in the reader.",
