@@ -2,7 +2,7 @@
 
 - **Status:** rejected
 - **Date:** 2026-11-25
-- **Where:** PR (number set when opened)
+- **Where:** [#44](https://github.com/daniilpetryk/taintwall/pull/44)
 
 ## Context
 
