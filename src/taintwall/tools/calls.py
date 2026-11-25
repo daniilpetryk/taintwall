@@ -48,10 +48,25 @@ class CallLog:
         """Refuse ill-typed arguments and tools without a spec; record the call.
 
         Raises:
+            PlanError: as ``check``.
+        """
+        spec, bound = self._bind(call)
+        # bind keeps call order: positional by parameter, then keywords as given,
+        # the order of call.labels; one label per bound argument, so never ragged.
+        labels = tuple(zip(bound, call.labels, strict=True))  # pragma: no mutate - see above
+        self._records.append(CallRecord(call.name, call.line, spec.effects, labels, call.control))
+
+    def check(self, call: PendingCall) -> None:
+        """Refuse ill-typed arguments and tools without a spec; record nothing.
+
+        Raises:
             PlanError: ``BAD_ARGUMENTS`` with the tool's name, or
                 ``UNKNOWN_TOOL`` for a tool the registry has no spec for
                 (its effects are unknown, so it does not run).
         """
+        self._bind(call)
+
+    def _bind(self, call: PendingCall) -> tuple[ToolSpec, tuple[str, ...]]:
         spec = self._specs.get(call.name)
         if spec is None:
             raise PlanError(PlanErrorCode.UNKNOWN_TOOL, call.line, call.name)
@@ -61,10 +76,7 @@ class CallLog:
             bound = spec.bind(positional, keyword)
         except ArgumentError:
             raise PlanError(PlanErrorCode.BAD_ARGUMENTS, call.line, call.name) from None
-        # bind keeps call order: positional by parameter, then keywords as given,
-        # the order of call.labels; one label per bound argument, so never ragged.
-        labels = tuple(zip(bound, call.labels, strict=True))  # pragma: no mutate - see above
-        self._records.append(CallRecord(call.name, call.line, spec.effects, labels, call.control))
+        return spec, tuple(bound)
 
     @property
     def specs(self) -> Mapping[str, ToolSpec]:
@@ -80,3 +92,19 @@ class CallLog:
     def effects_happened(self) -> bool:
         """Whether a call that changes something has been made: no replanning after it."""
         return any(not record.effects.read_only for record in self._records)
+
+
+class ArgumentCheck:
+    """A log's argument check without its record, a ``CallHook``.
+
+    It goes before the policies, so a policy sees only calls whose arguments
+    fit the tool: a policy that would crash on a wrong type cannot turn a
+    retryable ``BAD_ARGUMENTS`` into a refusal.
+    """
+
+    def __init__(self, log: CallLog) -> None:
+        self._log = log
+
+    def before(self, call: PendingCall) -> None:
+        """``CallLog.check``."""
+        self._log.check(call)

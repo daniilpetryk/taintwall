@@ -16,4 +16,4 @@ The system prompt is stable, for prompt caching: the role, the language's rules 
 
 ## Consequences
 
-PR 5 runs AgentDojo through this loop and measures utility, plan failure rate and attack success with `Replan(0, 0)` and with retries. Stage 3's policies plug in as `policies`; a refused call is a runtime failure before its effect, so it may be retried. Showing runtime errors only when their label allows it, and richer feedback than typed errors, are later work (design.md, research part).
+PR 5 runs AgentDojo through this loop and measures utility, plan failure rate and attack success with `Replan(0, 0)` and with retries. Stage 3's policies plug in as `policies`, a factory like `tools`; a call one refuses ends the run with `failure="policy"`, and they see only calls whose arguments fit the tool, so a policy's crash on a wrong type cannot turn a retryable error into a refusal. Showing runtime errors only when their label allows it, and richer feedback than typed errors, are later work (design.md, research part).

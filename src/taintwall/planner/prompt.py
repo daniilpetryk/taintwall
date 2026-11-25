@@ -7,7 +7,8 @@ the plan language's rules (built from the core's own lists, so they cannot
 drift from what ``parse_plan`` accepts), and every tool's signature from
 ``Registry.describe()``. The planner never sees data, so the user message
 holds the owner's request and, on a retry, the previous program and its
-typed errors: a code, a line and a name from the program itself (Q3).
+typed errors: a code, a line and a name from the program itself (Q3), with
+the errors of up to ``HISTORY`` attempts before it.
 """
 
 from collections.abc import Sequence

@@ -18,7 +18,7 @@ from typing import Unpack
 from taintwall.core.interpreter import CallHook, Hooks, Interpreter, InterpreterOptions, Tool
 from taintwall.core.labels import Label, Labeled, Readers, Source
 from taintwall.core.plan import Plan
-from taintwall.tools.calls import CallLog
+from taintwall.tools.calls import ArgumentCheck, CallLog
 from taintwall.tools.check import PlanCheck, check_plan
 from taintwall.tools.schema import RecordOf, accepts, records_in, render_record
 from taintwall.tools.spec import ToolSpec
@@ -109,8 +109,9 @@ class Registry:
         """An interpreter over these tools, wired as they must be, and its call log.
 
         Tools, their readers and the call log go in together, so none can be
-        forgotten. ``policies`` run before the log: a refused call is never
-        recorded as made. Pass the ``log`` of an earlier attempt so its
+        forgotten. ``policies`` run after the arguments are checked and before
+        the log records the call: a policy sees only well-typed calls, and a
+        refused call is never recorded as made. Pass the ``log`` of an earlier attempt so its
         effects carry over: the replanning loop must not retry after a side
         effect of any attempt (Q3). ``options`` are the interpreter's own
         (requester, mint, limits, flows).
@@ -123,7 +124,10 @@ class Registry:
         elif log.specs != self._specs:
             raise ForeignLogError
         interpreter = Interpreter(
-            self._tools(), hook=Hooks(*policies, log), readers=self.readers, **options
+            self._tools(),
+            hook=Hooks(ArgumentCheck(log), *policies, log),
+            readers=self.readers,
+            **options,
         )
         return interpreter, log
 
