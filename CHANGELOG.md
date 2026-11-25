@@ -63,7 +63,7 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
 - Optional reader fields: a field the data does not state is left out of
   the reader's result instead of failing the call, and `have_enough_info` is
   about the question. On AgentDojo banking with retries, utility is back to
-  the plain agent's 69% and plan failure falls to 0% alone and 1% and 6%
+  the plain agent's 69% in that draw (62% over five, #45) and plan failure falls to 0% alone and 1% and 6%
   under attack; retries now change scores (#42, ADR 0021).
 - A study of two hints in the planner's prompt (read reader fields with
   `info.get`, calculate in the program): the first removes `MISSING_FIELD`
@@ -71,6 +71,11 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   is noise between draws of the planner on one program per task. Not
   adopted; planner-prompt changes wait for several draws per task (#44, ADR
   0022).
+- Several draws per run (`--draws`), each with its own cache entries, and
+  each rate's spread over them. Over five draws the planner with retries
+  keeps 62% of banking tasks on average (50–69%; #42's 69% was the best
+  draw), 58% and 57% under attack; retries rescue 40 and 37 attacked
+  requests per five draws and lose none (#45).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,

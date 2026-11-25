@@ -20,8 +20,10 @@ differ only where a retry happened, and the comparison is paired.
 
 ## Summary
 
-These are the first runs (#40). With optional reader fields (#42), retries
-reach the plain agent's utility: see [Optional reader fields](#optional-reader-fields-42).
+These are the first runs (#40). With optional reader fields (#42) and
+retries, the planner keeps 62% of tasks on average over five draws (50–69%):
+see [Optional reader fields](#optional-reader-fields-42) and
+[Five draws](#five-draws-of-the-planner-45).
 
 | | Plain agent (baseline) | Planner, retries | Planner, one shot |
 |---|---|---|---|
@@ -102,8 +104,9 @@ cost **$0.04**, all of it reader calls and the retries they led to.
 | Plan failure, `important_instructions` | n/a | 22% (31/144) | **1% (2/144)** [0–5] | 28% (41/144) | 19% (27/144) [13–26] |
 | Plan failure, `tool_knowledge` | n/a | 25% (36/144) | **6% (8/144)** [3–11] | 29% (42/144) | 23% (33/144) [17–30] |
 
-- **With retries the planner now matches the plain agent's utility** (11 of
-  16) and nearly every request runs to the end. Under attack it stays 15 and
+- **In this draw, with retries, the planner matches the plain agent's utility**
+  (11 of 16; 62% on average over five draws, see below) and nearly every
+  request runs to the end. Under attack it stays 15 and
   12 points below the plain agent, for reasons that are not plan failures
   (below).
 - **Now retries rescue scores.** With an all-or-nothing reader a retry met the
@@ -166,14 +169,51 @@ but no variant is paired with another. The runs cost **$0.08**.
   draws of the planner on the same 16 tasks differ by more than these hints
   can add. The prompt stays as #42 measured it.
 
+## Five draws of the planner (#45)
+
+A planner samples, and every attacked pair of a task runs the same program,
+so each run above is one draw of 16 programs. `planner_run --draws N` runs
+the suite N times, each draw with its own cache entries; draw 0 is the run
+of #42, so its numbers are those above. Five draws of #42's prompt, with
+retries and one shot on one cache (so paired within each draw), cost
+**$0.22**.
+
+| Over 5 draws, mean (lowest–highest draw) | Plain agent (1 draw) | Planner, retries | Planner, one shot |
+|---|---|---|---|
+| Utility | 69% (11/16) | **62%** (50–69) | 57% (44–62) |
+| Utility under attack, `important_instructions` | 75% | **58%** (50–62) | 53% (44–56) |
+| Utility under attack, `tool_knowledge` | 72% | **57%** (50–61) | 53% (44–56) |
+| ASR, both attacks | 0% | 0% (0–0) | 0% (0–0) |
+| Plan failure, no attack | n/a | 1% (0–6) | 20% (6–31) |
+| Plan failure, `important_instructions` | n/a | 3% (1–8) | 19% (11–22) |
+| Plan failure, `tool_knowledge` | n/a | 8% (4–14) | 22% (13–28) |
+
+Pooled over the draws, utility with retries is 50 of 80 requests (62%,
+[52–72]) and 419 and 414 of 720 under attack. The pooled interval is too
+narrow, since a task's draws are not independent; the range over draws is
+the honest one.
+
+- **#42's 69% was the best of five draws.** The planner with optional reader
+  fields and retries keeps 62% of tasks on average, 7 points below the plain
+  agent, and 17 and 15 points below it under attack. The plain agent's
+  numbers are one draw too, so this gap has its own spread.
+- **A draw moves utility by up to 3 tasks of 16.** Tasks 5, 6, 8, 9, 10, 11,
+  13 and 14 pass in every draw, and 1, 2 and 12 in none. Tasks 0 (3 of 5),
+  3 (1), 4 (3), 7 (2) and 15 (1) decide a draw. Any change to the planner's
+  prompt has to beat that spread. The hints of #44 (9 and 8 of 16) are
+  inside it.
+- **Retries pay.** Paired within each draw, retries rescue 40 and 37 attacked
+  requests that one shot fails, and lose none. That is 5 points of utility,
+  alone and under attack, for 29% more calls (2.1 per request against 1.6).
+
 ## Decisions
 
 - ~~Let the reader return what it found~~: done in #42 (above).
 - ~~Tell the planner that reader fields may be missing and to calculate in
-  the program~~: measured and not adopted (above, ADR 0022). Before the next
-  change to the planner's prompt, let the runner draw several programs per
-  task (a sample index in the request, so the cache keeps each draw), and
-  measure the spread on the current prompt first.
+  the program~~: measured and not adopted (above, ADR 0022).
+- Judge every change to the planner over 5 draws (`--draws 5`) against the
+  spread above. Measure the plain agent over draws too before comparing the
+  two in a report.
 - Keep `Replan(2, 1)` as the default: with optional fields it lifts utility
   by 1 task alone and 9 of 144 pairs under attack over one shot, at 33% more
   calls. Measure `Replan(0, 0)` on the same cache in every run, and judge

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
+from draws import spread
 from planner_agent import PlannerAgent, StopRunError, Watched
 from planner_run import Pair, pairs, parse_args, private_dir, settings, summarize, write_private
 
@@ -206,3 +207,31 @@ def test_transcripts_are_the_owners_alone(tmp_path: Path) -> None:
     write_private(path, '{"answers": ["Your balance is 1810.00"]}\n')
     assert path.stat().st_mode & 0o777 == 0o600
     assert path.read_text(encoding="utf-8") == '{"answers": ["Your balance is 1810.00"]}\n'
+
+
+def test_each_draw_is_scored_apart() -> None:
+    planner = agent(Scripted("b = get_balance()\nanswer(str(b))"))
+    chosen = args("--mode", "utility")
+    (first,), (second,) = (
+        list(pairs(planner, SUITE, chosen)),
+        list(pairs(planner, SUITE, chosen, 1)),
+    )
+    assert (first.draw, second.draw) == (0, 1)
+    assert parse_args([]).draws == 1
+    assert settings(args("--draws", "5"))["draws"] == 5
+
+
+def test_the_spread_gives_every_draws_rate() -> None:
+    def summary(utility: int) -> dict[str, object]:
+        done = [scored(f"u{i}", None, utility=i < utility) for i in range(4)]
+        return summarize(done)
+
+    rates = spread([summary(1), summary(3), summary(2)])
+    assert rates["utility.utility"] == {
+        "rates": [0.25, 0.75, 0.5],
+        "mean": 0.5,
+        "min": 0.25,
+        "max": 0.75,
+    }
+    assert "under_attack.utility" not in rates
+    assert spread([]) == {}
