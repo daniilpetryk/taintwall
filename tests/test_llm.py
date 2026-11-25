@@ -20,6 +20,7 @@ from taintwall.llm import (
     BudgetedClient,
     BudgetExceededError,
     CachedClient,
+    LLMError,
     MalformedReplyError,
     MissingKeyError,
     OpenRouterClient,
@@ -68,9 +69,9 @@ class Recorder:
         self.status, self.raw = status, raw
         self.calls: list[tuple[str, dict[str, object], Mapping[str, str]]] = []
 
-    def __call__(self, url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
+    def __call__(self, url: str, body: bytes, headers: Mapping[str, str]) -> openrouter.Answer:
         self.calls.append((url, json.loads(body), headers))
-        return self.status, self.raw
+        return self.status, self.raw, None
 
 
 class TestOpenRouter:
@@ -185,11 +186,12 @@ class TestOpenRouter:
         ],
     )
     def test_failures_are_typed_and_never_quote_the_reply(
-        self, status: int, raw: bytes, error: type[Exception], message: str
+        self, status: int, raw: bytes, error: type[LLMError], message: str
     ) -> None:
         with pytest.raises(error) as err:
             OpenRouterClient("sk-secret", Recorder(status, raw)).structured(REQUEST)
         assert str(err.value) == message
+        assert err.value.usage == Usage()
         assert err.value.__cause__ is None
 
     def test_the_key_comes_from_the_env_file_only(
@@ -213,12 +215,16 @@ class TestOpenRouter:
 
 class _Handler(http.server.BaseHTTPRequestHandler):
     status: ClassVar[int] = 200
+    retry_after: ClassVar[str | None] = None
     seen: ClassVar[list[tuple[str, bytes, str]]] = []
 
     def do_POST(self) -> None:
         length = int(self.headers["Content-Length"])
         type(self).seen.append((self.path, self.rfile.read(length), self.headers["X-Test"]))
         self.send_response(type(self).status)
+        retry_after = type(self).retry_after
+        if retry_after is not None:
+            self.send_header("Retry-After", retry_after)
         self.end_headers()
         self.wfile.write(b"reply")
 
@@ -246,11 +252,21 @@ def server() -> Iterator[str]:
 
 
 def test_the_standard_library_transport_posts_and_reads(server: str) -> None:
-    _Handler.status, _Handler.seen = 200, []
-    assert openrouter.urllib_transport(server, b"body", {"X-Test": "1"}) == (200, b"reply")
+    _Handler.status, _Handler.seen, _Handler.retry_after = 200, [], None
+    assert openrouter.urllib_transport(server, b"body", {"X-Test": "1"}) == (200, b"reply", None)
     assert _Handler.seen == [("/v1", b"body", "1")]
     _Handler.status = 429
-    assert openrouter.urllib_transport(server, b"body", {"X-Test": "2"}) == (429, b"")
+    assert openrouter.urllib_transport(server, b"body", {"X-Test": "2"}) == (429, b"", None)
+    for header, seconds in [
+        ("20", 20.0),
+        (" 7 ", 7.0),
+        ("Wed, 21 Oct 2026 07:28:00 GMT", None),
+        ("\u00b2", None),
+        ("-1", None),
+    ]:
+        _Handler.retry_after = header
+        assert openrouter.urllib_transport(server, b"b", {"X-Test": "3"}) == (429, b"", seconds)
+    _Handler.retry_after = None
 
 
 class TestCache:
@@ -386,6 +402,8 @@ class TestSchemaAndFailures:
             {"type": "object", "properties": []},
             {"type": "object", "required": "a"},
             {"$ref": "#/$defs/A"},
+            {"type": "object", "required": [{}]},
+            {"type": "object", "required": [1]},
             {"enum": "x"},
             {"anyOf": {"type": "string"}},
             {"anyOf": [{"type": "string", "pattern": "x"}]},
@@ -508,7 +526,7 @@ class TestSchemaAndFailures:
 
     @pytest.mark.parametrize("failure", [OSError, TimeoutError, http.client.IncompleteRead])
     def test_no_answer_is_a_typed_error(self, failure: type[Exception]) -> None:
-        def transport(_url: str, _body: bytes, _headers: Mapping[str, str]) -> tuple[int, bytes]:
+        def transport(_url: str, _body: bytes, _headers: Mapping[str, str]) -> openrouter.Answer:
             raise failure(
                 b"secret host" if failure is http.client.IncompleteRead else "secret host"
             )
@@ -551,15 +569,47 @@ class TestBudget:
         budget.structured(REQUEST)
         assert (budget.calls, budget.cost) == (0, 0.0)
 
+    def test_a_failed_call_counts_with_what_it_was_billed(self) -> None:
+        class Failing:
+            def __init__(self, error: LLMError) -> None:
+                self.error = error
+
+            def structured(self, request: StructuredRequest) -> StructuredReply:  # noqa: ARG002 - the protocol's
+                raise self.error
+
+        cut = TruncatedError("m/x", Usage(10, 8000, 0, 0.6))
+        budget = BudgetedClient(Failing(cut), max_calls=5, max_cost=1.0)
+        with pytest.raises(TruncatedError) as err:
+            budget.structured(REQUEST)
+        assert err.value is cut
+        assert err.value.__context__ is None
+        assert budget.calls == 1
+        assert budget.cost == pytest.approx(0.6)
+        with pytest.raises(TruncatedError):
+            budget.structured(REQUEST)
+        assert budget.calls == 2  # two failed calls
+        with pytest.raises(BudgetExceededError):
+            budget.structured(REQUEST)
+        unreachable = BudgetedClient(Failing(ProviderError("m/x", None)), max_calls=1, max_cost=1.0)
+        with pytest.raises(ProviderError):
+            unreachable.structured(REQUEST)
+        assert (unreachable.calls, unreachable.cost) == (1, 0.0)
+        for refused in (UnsupportedSchemaError("m/x"), BudgetExceededError("m/x")):
+            never = BudgetedClient(Failing(refused), max_calls=1, max_cost=1.0)
+            with pytest.raises(type(refused)):
+                never.structured(REQUEST)
+            assert (never.calls, never.cost) == (0, 0.0)
+
 
 class Flaky:
     """Answers each status in turn (``None``: no answer at all), then the last forever."""
 
-    def __init__(self, *answers: int | None) -> None:
+    def __init__(self, *answers: int | None, retry_after: float | None = None) -> None:
         self.answers = list(answers)
+        self.retry_after = retry_after
         self.calls = 0
 
-    def __call__(self, url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
+    def __call__(self, url: str, body: bytes, headers: Mapping[str, str]) -> openrouter.Answer:
         # Every attempt is the same request.
         assert (url, json.loads(body)["model"], headers["Authorization"]) == (
             openrouter.ENDPOINT,
@@ -570,7 +620,7 @@ class Flaky:
         status = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if status is None:
             raise ConnectionResetError
-        return status, response('{"a": 1}') if status == 200 else b""
+        return status, response('{"a": 1}') if status == 200 else b"", self.retry_after
 
 
 @pytest.mark.parametrize("transient", [429, 500, 503, None])
@@ -604,3 +654,30 @@ def test_a_given_sleep_is_used() -> None:
     waited: list[float] = []
     OpenRouterClient("k", Flaky(429, 200), sleep=waited.append).structured(REQUEST)
     assert waited == [2.0]
+
+
+@pytest.mark.parametrize(
+    ("asked", "waits"), [(20.0, [20.0, 20.0]), (1.0, [2.0, 8.0]), (600.0, [60.0, 60.0])]
+)
+def test_a_retry_after_lengthens_the_wait(
+    asked: float, waits: list[float], no_waiting: list[float]
+) -> None:
+    with pytest.raises(ProviderError):
+        OpenRouterClient("k", Flaky(429, retry_after=asked)).structured(REQUEST)
+    assert no_waiting == waits
+
+
+def test_a_billed_failure_carries_its_usage() -> None:
+    usage = {"prompt_tokens": 3, "completion_tokens": 9, "cost": 0.5}
+    for raw in (
+        response("{}", finish="length", usage=usage),
+        response("[1]", usage=usage),
+        response("not json", usage=usage),
+    ):
+        with pytest.raises(LLMError) as err:
+            OpenRouterClient("k", Recorder(200, raw)).structured(REQUEST)
+        assert err.value.usage == Usage(3, 9, 0, 0.5)
+    strict = dataclasses.replace(REQUEST, schema={"type": "object", "required": ["a"]})
+    with pytest.raises(MalformedReplyError) as off:
+        OpenRouterClient("k", Recorder(200, response("{}", usage=usage))).structured(strict)
+    assert off.value.usage == Usage(3, 9, 0, 0.5)

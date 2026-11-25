@@ -1,6 +1,6 @@
 # Copyright 2026 Daniil Petryk
 # SPDX-License-Identifier: Apache-2.0
-"""The tool layer under misuse: copies, odd names, crashing hooks, attempts."""
+"""The tool layer under misuse: copies, odd names, crashing hooks, ill-typed calls, attempts."""
 
 import copy
 import datetime as dt
@@ -171,3 +171,29 @@ def test_parameter_descriptions_reach_the_planner() -> None:
         'def pay(to: str, n: int, memo: str) -> bool:\n    """Pays.\n\n    Args:\n'
         '        to: Who gets it\n        memo: A note\n    """'
     )
+
+
+def test_policies_see_only_calls_whose_arguments_fit() -> None:
+    seen: list[object] = []
+
+    class Watch:
+        def before(self, call: PendingCall) -> None:
+            seen.append(call.arguments.positional[0].value)
+
+    spec = ToolSpec("t", "T.", (Param("n", Scalar.INT),), Scalar.INT, Effects(writes=True))
+    interpreter, log = Registry([(spec, lambda n: n)]).interpreter(
+        requester=MINT.owner(), mint=MINT, policies=[Watch()]
+    )
+    with pytest.raises(LabeledPlanError) as err:
+        interpreter.run(parse_plan("x = t('five')"))
+    assert (err.value.code, err.value.detail, seen, log.records) == (
+        PlanErrorCode.BAD_ARGUMENTS,
+        "t",
+        [],
+        (),
+    )
+    with pytest.raises(LabeledPlanError) as unknown:
+        interpreter.run(parse_plan("x = nope(1)"))
+    assert unknown.value.code is PlanErrorCode.UNKNOWN_TOOL
+    interpreter.run(parse_plan("x = t(5)"))
+    assert (seen, [record.name for record in log.records]) == ([5], ["t"])

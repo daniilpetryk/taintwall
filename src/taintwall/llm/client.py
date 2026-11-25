@@ -63,21 +63,29 @@ class LLMClient(Protocol):
 
 
 class LLMError(RuntimeError):
-    """A model call did not give a usable reply; the message never quotes the reply."""
+    """A model call did not give a usable reply; the message never quotes the reply.
+
+    ``usage`` is what the failed call was billed, as the provider reported it
+    (a reply cut at its budget is billed in full); zero if nothing came back.
+    """
+
+    usage: Usage = Usage()
 
 
 class TruncatedError(LLMError):
     """The reply was cut at the output budget (``finish_reason == "length"``)."""
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, usage: Usage = Usage()) -> None:  # noqa: B008 - frozen
         super().__init__(f"{model}: reply cut at the output budget")
+        self.usage = usage
 
 
 class MalformedReplyError(LLMError):
     """The reply is not a JSON object, or not one of the requested schema."""
 
-    def __init__(self, model: str, what: str) -> None:
+    def __init__(self, model: str, what: str, usage: Usage = Usage()) -> None:  # noqa: B008 - frozen
         super().__init__(f"{model}: malformed reply ({what})")
+        self.usage = usage
 
 
 class ProviderError(LLMError):

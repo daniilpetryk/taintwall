@@ -49,6 +49,7 @@ def supported(schema: object) -> bool:
         and isinstance(properties, Mapping)
         and all(map(supported, properties.values()))
         and isinstance(schema.get("required", []), list)
+        and all(type(name) is str for name in schema.get("required", []))
         and isinstance(schema.get("enum", []), list)
         and isinstance(options, list)
         and all(map(supported, options))

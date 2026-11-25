@@ -6,10 +6,18 @@ A run that reaches either limit stops calling: the next request raises
 ``BudgetExceededError`` before it reaches the provider. The call that
 crosses the cost ceiling still completes (its cost is known only after),
 so a run can end up one call over. Replies from the cache cost nothing and
-do not count.
+do not count. A call that fails counts, with what it was billed (a reply cut
+at its budget is billed in full), unless it never reached a provider.
 """
 
-from taintwall.llm.client import BudgetExceededError, LLMClient, StructuredReply, StructuredRequest
+from taintwall.llm.client import (
+    BudgetExceededError,
+    LLMClient,
+    LLMError,
+    StructuredReply,
+    StructuredRequest,
+    UnsupportedSchemaError,
+)
 
 
 class BudgetedClient:
@@ -27,11 +35,27 @@ class BudgetedClient:
 
         Raises:
             BudgetExceededError: the calls or the cost have reached their limit.
+            LLMError: the inner client's error, counted first.
         """
         if self.calls >= self._max_calls or self.cost >= self._max_cost:
             raise BudgetExceededError(request.model)
-        reply = self._inner.structured(request)
+        reply = _call(self._inner, request)
+        if isinstance(reply, LLMError):
+            # Refused before any call: a schema no reply could be checked
+            # against, or an inner budget already spent.
+            if not isinstance(reply, UnsupportedSchemaError | BudgetExceededError):
+                self.calls += 1
+                self.cost += reply.usage.cost
+            raise reply
         if not reply.cached:
             self.calls += 1
             self.cost += reply.usage.cost
         return reply
+
+
+def _call(client: LLMClient, request: StructuredRequest) -> StructuredReply | LLMError:
+    """The reply or the error, so the error is raised again outside any handler."""
+    try:
+        return client.structured(request)
+    except LLMError as err:
+        return err

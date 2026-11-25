@@ -49,10 +49,21 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   their schema (refused before any call if it cannot be checked), retries
   with backoff, typed errors that never carry a reply, an on-disk response
   cache and a ceiling on calls and cost (#38).
+- The planner: a P-LLM prompt built from the plan language's rules and the
+  tool registry, an `answer` tool, and a loop that checks and runs each
+  program and retries within Q3's bounds with typed errors only (with those
+  of up to three earlier attempts), never after an effect; a call a policy
+  refuses ends the run. Tools and policies are built afresh for each
+  request (#39).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
   run under a pc of what decided them (#29).
+- The LLM layer: a failed call carries what it was billed (`LLMError.usage`),
+  and the budget counts it; a provider's `Retry-After` is honored, up to 60
+  seconds (#39).
+- Tool registry: a call's arguments are checked against the tool before any
+  policy sees it, so policies see only well-typed calls (#39).
 
 ## [0.3.0] - 2026-11-19
 
