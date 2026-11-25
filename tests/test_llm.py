@@ -298,6 +298,9 @@ class TestCache:
         # Draw 0 is the request alone: a cache written before draws still answers.
         assert key(REQUEST) == key(REQUEST, 0) == hashlib.sha256(canonical.encode()).hexdigest()
         assert len({key(REQUEST, 0), key(REQUEST, 1), key(REQUEST, 2)}) == 3
+        # The stored format: a later run finds the draws an earlier one cached.
+        drawn = json.dumps({**dataclasses.asdict(REQUEST), "draw": 1}, sort_keys=True)
+        assert key(REQUEST, 1) == hashlib.sha256(drawn.encode()).hexdigest()
         transport = Recorder(200, response('{"a": 1}'))
         for draw in (0, 1, 0, 1):
             CachedClient(OpenRouterClient("k", transport), tmp_path / "c", draw=draw).structured(
