@@ -142,7 +142,7 @@ def grid_table(grid: Grid, timeline: Timeline, journal: Json, *, with_patch: boo
 def _measured_in(journal: Json, point: Point) -> str:
     """A link from a current number to the patch card that measured it."""
     patch = journal["patches"][point.patch]
-    link = f'<a href="#{_e(patch["id"])}">#{patch["prs"][-1]}</a>'
+    link = f'<a href="#{_e(patch["id"])}">#{_e(patch["prs"][-1])}</a>'
     return f'<span class="muted ci">measured in {link}</span>'
 
 
@@ -269,7 +269,7 @@ def release_link(release: str) -> str:
 
 def card_head(patch: Json, journal: Json) -> str:
     """Kind, date, stage, PRs and commit, then the title (a link to itself) and what changed."""
-    prs = ", ".join(f'<a href="{REPO_URL}/pull/{pr}">#{pr}</a>' for pr in patch["prs"])
+    prs = ", ".join(f'<a href="{REPO_URL}/pull/{_e(pr)}">#{_e(pr)}</a>' for pr in patch["prs"])
     sha = patch["commit"]
     # A patch's commit is known once it is merged; until then only its PR.
     commit = f'<a href="{REPO_URL}/commit/{_e(sha)}"><code>{_e(sha)}</code></a>' if sha else ""

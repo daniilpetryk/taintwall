@@ -31,6 +31,7 @@ Usage (from the repo root)::
 import argparse
 import dataclasses
 import json
+import os
 import sys
 from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
@@ -168,8 +169,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> int:
     """Run the planner over the suite; write the summary and every pair to ``bench/results``."""
     args = parse_args()
-    run_dir = HERE / "runs" / args.run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = private_dir(HERE / "runs" / args.run_name)
     # One cache for every run of the suite: the same request gets the same
     # reply, so settings compared on it differ only where their requests do
     # (a one-shot run is the retries run's first attempts, paired).
@@ -232,11 +232,27 @@ def write(
     out.with_name(f"pairs-{suffix}.jsonl").write_text(
         "".join(json.dumps(dataclasses.asdict(p)) + "\n" for p in done), encoding="utf-8"
     )
-    # Plans and answers may quote the task's data: they stay in runs/.
-    (run_dir / f"transcripts-{suffix}.jsonl").write_text(
-        "".join(json.dumps(t) + "\n" for t in transcripts), encoding="utf-8"
+    # Plans and answers may quote the task's data: they stay in runs/, the
+    # owner's alone, as the response cache is.
+    write_private(
+        run_dir / f"transcripts-{suffix}.jsonl", "".join(json.dumps(t) + "\n" for t in transcripts)
     )
     print(json.dumps(summary, indent=2))  # noqa: T201 - CLI output
+
+
+def private_dir(path: Path) -> Path:
+    """``path`` as a directory only its owner may read (0o700, also when it existed)."""
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.chmod(0o700)
+    return path
+
+
+def write_private(path: Path, text: str) -> None:
+    """Write ``text`` to ``path``, readable by its owner only (0o600) from the start."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(descriptor, 0o600)  # an existing file keeps its mode through O_CREAT
+    with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+        file.write(text)
 
 
 if __name__ == "__main__":
