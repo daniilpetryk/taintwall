@@ -23,6 +23,7 @@ from taintwall.core.mint import Mint
 from taintwall.llm import (
     BudgetExceededError,
     LLMClient,
+    LLMError,
     ProviderError,
     StructuredReply,
     StructuredRequest,
@@ -30,9 +31,6 @@ from taintwall.llm import (
 from taintwall.planner import Outcome, Planner, PlannerModel, Replan
 from taintwall.reader import reader
 from taintwall.tools import Implementation, ToolSpec
-
-READER_CALLS = 10
-"""Reader calls per request: banking tasks read a file or a few transactions."""
 
 
 class StopRunError(RuntimeError):
@@ -51,14 +49,29 @@ class Watched:
         self.stop: str | None = None
         self.plans: list[str] = []
         """Every program the planner sent, for the run's transcripts."""
+        self.calls = 0
+        """Model calls since the last ``reset``, planner and reader, cached or not."""
+        self.cost = 0.0
+        """What those calls were billed; a reply from the cache costs nothing."""
+
+    def reset(self) -> None:
+        """Start counting one request's calls and plans."""
+        self.plans.clear()
+        self.calls = 0
+        self.cost = 0.0
 
     def structured(self, request: StructuredRequest) -> StructuredReply:
         """The inner reply; a provider failure or a spent budget is noted, then raised."""
+        self.calls += 1
         try:
             reply = self._inner.structured(request)
         except (ProviderError, BudgetExceededError) as err:
             self.stop = self.stop or str(err)
             raise
+        except LLMError as err:
+            self.cost += err.usage.cost
+            raise
+        self.cost += reply.usage.cost
         if request.schema_name == "plan":
             self.plans.append(str(reply.value.get("plan")))
         return reply
@@ -73,13 +86,17 @@ class PlannerAgent(BasePipelineElement):  # type: ignore[misc]  # AgentDojo is u
         planner: PlannerModel,
         *,
         reader_model: str,
+        reader_effort: str | None,
+        reader_calls: int,
         replan: Replan,
         suite: Any,  # noqa: ANN401 - AgentDojo's TaskSuite is untyped
         suite_name: str,
     ) -> None:
-        self._client = client
+        self.client = client
         self._planner = planner
         self._reader_model = reader_model
+        self._reader_effort = reader_effort
+        self._reader_calls = reader_calls
         self._replan = replan
         self._suite = suite
         self._suite_name = suite_name
@@ -88,6 +105,8 @@ class PlannerAgent(BasePipelineElement):  # type: ignore[misc]  # AgentDojo is u
         # The important_instructions attack addresses the model by name.
         MODEL_NAMES.setdefault(self.name, prose_name(planner.name))
         self.outcome: Outcome | None = None
+        self.refused: dict[str, str] = {}
+        """Functions the registry cannot express, left out of every request, with why."""
         self.transcripts: list[dict[str, Any]] = []
         """What each query's planner wrote and said: kept in ``runs/``, not committed."""
 
@@ -102,17 +121,21 @@ class PlannerAgent(BasePipelineElement):  # type: ignore[misc]  # AgentDojo is u
         """Plan and run ``query`` against ``env``; reply with what the plan answered."""
 
         def tools() -> list[tuple[ToolSpec, Implementation]]:
-            found, _ = entries(self._suite, env, self._suite_name)
+            found, refused = entries(self._suite, env, self._suite_name)
+            self.refused.update(refused)
             ask = reader(
-                self._client, self._reader_model, max_calls=READER_CALLS, reasoning_effort="low"
+                self.client,
+                self._reader_model,
+                max_calls=self._reader_calls,
+                reasoning_effort=self._reader_effort,
             )
             return [*found, ask]
 
-        planner = Planner(self._client, self._planner, tools, replan=self._replan)
-        self._client.plans.clear()
+        planner = Planner(self.client, self._planner, tools, replan=self._replan)
+        self.client.reset()
         self.outcome = planner.run(query, requester=self._mint.owner(), mint=self._mint)
-        if self._client.stop is not None:
-            raise StopRunError(self._client.stop)
+        if self.client.stop is not None:
+            raise StopRunError(self.client.stop)
         self._record(query, self.outcome)
         # Always an assistant reply, even an empty one: with none, AgentDojo
         # would run the task again.
@@ -132,7 +155,7 @@ class PlannerAgent(BasePipelineElement):  # type: ignore[misc]  # AgentDojo is u
         self.transcripts.append(
             {
                 "query": query,
-                "plans": list(self._client.plans),
+                "plans": list(self.client.plans),
                 "errors": [[str(error) for error in a.errors] for a in outcome.attempts],
                 "failure": outcome.failure,
                 "answers": [answer.text for answer in outcome.answers],

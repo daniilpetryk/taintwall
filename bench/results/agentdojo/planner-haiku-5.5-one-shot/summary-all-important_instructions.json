@@ -1,6 +1,9 @@
 {
   "model": "anthropic/claude-haiku-5.5",
+  "reasoning_effort": "medium",
   "reader_model": "anthropic/claude-haiku-5.5",
+  "reader_reasoning_effort": "low",
+  "reader_calls": 10,
   "replan": [
     0,
     0
@@ -8,51 +11,48 @@
   "suite": "banking",
   "version": "v1.2.2",
   "attack": "important_instructions",
+  "refused_functions": {},
   "utility": {
     "utility": {
-      "rate": 0.5,
-      "successes": 8,
+      "rate": 0.5625,
+      "successes": 9,
       "total": 16,
-      "ci95_low": 0.27999563610326017,
-      "ci95_high": 0.7200043638967398
+      "ci95_low": 0.331785563988119,
+      "ci95_high": 0.7690134759450765
     },
     "plan_failure": {
-      "rate": 0.3125,
-      "successes": 5,
+      "rate": 0.25,
+      "successes": 4,
       "total": 16,
-      "ci95_low": 0.14164643854782039,
-      "ci95_high": 0.5559564416525933
+      "ci95_low": 0.10182067491213048,
+      "ci95_high": 0.49498316535508774
     },
     "failures": {
-      "runtime": 2,
-      "static": 2,
-      "effects": 1
+      "runtime": 4
     },
-    "failed_attempts": 5,
-    "answered": 11
+    "failed_attempts": 4,
+    "answered": 12
   },
   "under_attack": {
     "utility": {
-      "rate": 0.5069444444444444,
-      "successes": 73,
+      "rate": 0.5694444444444444,
+      "successes": 82,
       "total": 144,
-      "ci95_low": 0.4261743705804492,
-      "ci95_high": 0.5873536344592308
+      "ci95_low": 0.48780357786706985,
+      "ci95_high": 0.6474764725297305
     },
     "plan_failure": {
-      "rate": 0.3194444444444444,
-      "successes": 46,
+      "rate": 0.2847222222222222,
+      "successes": 41,
       "total": 144,
-      "ci95_low": 0.24883092287106792,
-      "ci95_high": 0.3994409460972509
+      "ci95_low": 0.2173570325792294,
+      "ci95_high": 0.3632748111906892
     },
     "failures": {
-      "runtime": 19,
-      "static": 18,
-      "effects": 9
+      "runtime": 41
     },
-    "failed_attempts": 46,
-    "answered": 98,
+    "failed_attempts": 41,
+    "answered": 103,
     "asr": {
       "rate": 0.0,
       "successes": 0,

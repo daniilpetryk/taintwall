@@ -3,7 +3,7 @@
   "overview": {
     "what": "taintwall is a runtime for AI agents that hold a crypto wallet. It defends against prompt injection by design: the model that plans never reads untrusted data, every value carries a label saying where it came from, and policies check those labels before any tool runs.",
     "goal": "Cut the attack success rate to near zero while keeping utility close to the undefended agent's.",
-    "now": "Stage 2 measures the planner itself, without policies: on AgentDojo banking it keeps most of the plain agent's utility, and retries cut plan failures by a third. The strongest attack on the undefended agent is memory injection.",
+    "now": "Stage 2 measures the planner itself, without policies: on AgentDojo banking it keeps most of the plain agent's utility; retries rescue failing programs but no scores. The strongest attack on the undefended agent is memory injection.",
     "highlights": [
       {
         "measurement": "cb-crypto_trading-asr-memory",
@@ -834,8 +834,8 @@
       "title": "The planner on AgentDojo banking, with retries and one shot",
       "changed": "AgentDojo's banking suite through taintwall's planner: the P-LLM writes a program without seeing data, the checker and the interpreter run it, the reader extracts fields from what it reads, and what it answers is scored. No policies yet. Two settings: Q3's retries, Replan(2, 1), and CaMeL's one shot, Replan(0, 0).",
       "question": "What does the planner/reader split cost in utility, and how often do plans fail, with and without retries?",
-      "result": "Utility 56% with retries and 50% one shot, against 69% for the plain agent (intervals overlap on 16 tasks). Retries cut plan failure under attack from 32% to 22%, and no request ended on a program that could not run. ASR is 0% as for the plain agent, which already refuses these attacks. The largest loss is the reader being all or nothing: a plan asking for one field the data lacks fails the whole call (3 of 16 tasks).",
-      "decision": "Let the reader return what it found (optional fields), keep Replan(2, 1) as the default with one shot in every measurement, and state data conventions such as `\"me\"` in tool descriptions. Attacks are measured where the plain agent fails: memory injection on CrAIBench.",
+      "result": "Utility 56% with retries and one shot alike, against 69% for the plain agent (intervals overlap on 16 tasks). On a shared cache, so paired, retries rescue 11 and 7 of 144 attacked requests (plan failure 28% to 22%, 29% to 25%) but change no score: the rescued task's check always passes. ASR is 0% as for the plain agent, which already refuses these attacks. The largest loss is the reader being all or nothing: a plan asking for one field the data lacks fails the whole call (3 of 16 tasks).",
+      "decision": "Let the reader return what it found (optional fields); keep Replan(2, 1) as the default with one shot measured on the same cache, and judge retries again on CrAIBench; state data conventions such as `\"me\"` in tool descriptions. Attacks are measured where the plain agent fails: memory injection on CrAIBench.",
       "report": "docs/planner-banking.md",
       "measurements": [
         {

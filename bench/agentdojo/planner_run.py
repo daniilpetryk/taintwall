@@ -63,7 +63,10 @@ class Pair:
     answered: bool
     attempts: tuple[str, ...]
     """Why each program before the last was not the last: phase and error code."""
+    calls: int
+    """Model calls the request made, planner and reader, cached or not."""
     cost: float
+    """What this run was billed for them: 0 for replies from the cache."""
 
 
 def pair(
@@ -87,7 +90,8 @@ def pair(
         tuple(
             f"{a.phase}:{a.errors[0].code.value}" if a.errors else a.phase for a in outcome.attempts
         ),
-        outcome.usage.cost,
+        agent.client.calls,
+        agent.client.cost,
     )
 
 
@@ -142,6 +146,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", default="anthropic/claude-haiku-5.5")
     parser.add_argument("--reasoning-effort", default="medium")
     parser.add_argument("--reader-model", default="anthropic/claude-haiku-5.5")
+    parser.add_argument("--reader-reasoning-effort", default="low")
+    parser.add_argument(
+        "--reader-calls", type=int, default=10, help="per request: a file or a few transactions"
+    )
     parser.add_argument(
         "--replan", nargs=2, type=int, default=[2, 1], metavar=("STATIC", "RUNTIME")
     )
@@ -160,8 +168,12 @@ def main() -> int:
     """Run the planner over the suite; write the summary and every pair to ``bench/results``."""
     args = parse_args()
     run_dir = HERE / "runs" / args.run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # One cache for every run of the suite: the same request gets the same
+    # reply, so settings compared on it differ only where their requests do
+    # (a one-shot run is the retries run's first attempts, paired).
     budget = BudgetedClient(
-        CachedClient(OpenRouterClient(read_key(REPO / ".env")), run_dir / "cache"),
+        CachedClient(OpenRouterClient(read_key(REPO / ".env")), HERE / "runs" / "cache"),
         max_calls=args.max_calls,
         max_cost=args.max_cost,
     )
@@ -170,27 +182,38 @@ def main() -> int:
         Watched(budget),
         PlannerModel(args.model, args.reasoning_effort or None),
         reader_model=args.reader_model,
+        reader_effort=args.reader_reasoning_effort or None,
+        reader_calls=args.reader_calls,
         replan=Replan(*args.replan),
         suite=suite,
         suite_name=args.suite,
     )
     done: list[Pair] = []
-    summary: dict[str, Any] = {
+    summary = settings(args)
+    try:
+        done.extend(pairs(agent, suite, args))
+    except StopRunError as err:
+        summary["stopped"] = str(err)
+    summary["refused_functions"] = agent.refused
+    summary.update(summarize(done))
+    summary["meter"] = {"calls": budget.calls, "cost": budget.cost}
+    write(args, run_dir, summary, done, agent.transcripts)
+    return 1 if "stopped" in summary else 0
+
+
+def settings(args: argparse.Namespace) -> dict[str, Any]:
+    """What a summary was measured with: everything that changes its numbers."""
+    return {
         "model": args.model,
+        "reasoning_effort": args.reasoning_effort or None,
         "reader_model": args.reader_model,
+        "reader_reasoning_effort": args.reader_reasoning_effort or None,
+        "reader_calls": args.reader_calls,
         "replan": args.replan,
         "suite": args.suite,
         "version": BENCHMARK_VERSION,
         "attack": args.attack if args.mode != "utility" else None,
     }
-    try:
-        done.extend(pairs(agent, suite, args))
-    except StopRunError as err:
-        summary["stopped"] = str(err)
-    summary.update(summarize(done))
-    summary["meter"] = {"calls": budget.calls, "cost": budget.cost}
-    write(args, run_dir, summary, done, agent.transcripts)
-    return 1 if "stopped" in summary else 0
 
 
 def write(

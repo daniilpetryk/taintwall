@@ -30,7 +30,9 @@ plans.
 `agentdojo/planner-*/` holds taintwall's own runs (stage 2 on): the same
 summaries, with plan failures by cause, and one line per pair with what the
 planner did (`failure`, the failed `attempts` as phase and error code,
-`answered`, `cost`). See [`docs/planner-banking.md`](../../docs/planner-banking.md).
+`answered`, the model `calls` it made, cached or not, and their `cost` in
+this run). All settings share one response cache in `bench/agentdojo/runs/cache/`,
+so runs of different settings are paired. See [`docs/planner-banking.md`](../../docs/planner-banking.md).
 
 `agentdojo/plans/<run>/` holds a study, not a baseline: the plans five
 models wrote for the banking tasks (one JSON line per task with the prompt,

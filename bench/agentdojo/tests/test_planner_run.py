@@ -7,9 +7,9 @@ import argparse
 import pytest
 from agentdojo.task_suite.load_suites import get_suite
 from planner_agent import PlannerAgent, StopRunError, Watched
-from planner_run import Pair, pairs, parse_args, summarize
+from planner_run import Pair, pairs, parse_args, settings, summarize
 
-from taintwall.llm import ProviderError, StructuredReply, StructuredRequest, Usage
+from taintwall.llm import ProviderError, StructuredReply, StructuredRequest, TruncatedError, Usage
 from taintwall.planner import PlannerModel, Replan
 from taintwall.reader import ENOUGH
 
@@ -46,6 +46,8 @@ def agent(client: object, replan: Replan | None = None) -> PlannerAgent:
         watched,
         MODEL,
         reader_model="m/reader",
+        reader_effort="low",
+        reader_calls=10,
         replan=replan or Replan(),
         suite=SUITE,
         suite_name="banking",
@@ -87,6 +89,8 @@ def test_pairs_are_scored_with_what_the_planner_did() -> None:
     (alone,) = pairs(planner, SUITE, args("--mode", "utility"))
     assert (alone.user_task, alone.injection_task, alone.security) == ("user_task_0", None, None)
     assert (alone.failure, alone.answered, alone.attempts) == (None, True, ())
+    assert (alone.calls, alone.cost) == (1, 0.01)
+    assert planner.refused == {}
     attacked = list(
         pairs(planner, SUITE, args("--mode", "security", "--injection-tasks", "injection_task_0"))
     )
@@ -135,7 +139,7 @@ def scored(  # noqa: PLR0913 - a pair's fields
     attempts: tuple[str, ...] = (),
 ) -> Pair:
     answered = failure != "static"
-    return Pair(user, injection, utility, security, failure, answered, attempts, 0.1)
+    return Pair(user, injection, utility, security, failure, answered, attempts, 2, 0.1)
 
 
 def test_the_summary_counts_utility_asr_and_plan_failures() -> None:
@@ -153,3 +157,38 @@ def test_the_summary_counts_utility_asr_and_plan_failures() -> None:
     assert (attacked["asr"]["successes"], attacked["asr"]["total"]) == (1, 2)
     assert (attacked["failed_attempts"], attacked["answered"]) == (1, 2)
     assert summarize([]) == {}
+
+
+def test_a_request_counts_its_reader_calls_and_their_cost() -> None:
+    plan = (
+        'f = read_file("bill-december-2023.txt")\n'
+        'x = query_reader("Amount?", f, {"a": "float"})\n'
+        "answer(str(x.a))"
+    )
+    planner = agent(Scripted(plan, {"a": 98.7}))
+    (done,) = pairs(planner, SUITE, args("--mode", "utility"))
+    assert done.calls == 2  # the planner and the reader
+    assert done.cost == pytest.approx(0.011)
+    assert planner.transcripts[-1]["answers"] == ["98.7"]
+
+
+def test_a_failed_reply_still_counts_what_it_was_billed() -> None:
+    class Cut(Scripted):
+        def structured(self, request: StructuredRequest) -> StructuredReply:
+            self.requests.append(request)
+            raise TruncatedError(request.model, Usage(1, 8000, 0, 0.3))
+
+    watched = Watched(Cut("x"))
+    with pytest.raises(TruncatedError):
+        watched.structured(StructuredRequest("m", "s", "u", "plan", {"type": "object"}, 10))
+    assert (watched.calls, watched.cost, watched.stop) == (1, 0.3, None)
+    watched.reset()
+    assert (watched.calls, watched.cost, watched.plans) == (0, 0.0, [])
+
+
+def test_the_settings_name_everything_that_changes_the_numbers() -> None:
+    chosen = settings(args("--mode", "utility", "--reasoning-effort", "", "--replan", "0", "0"))
+    assert chosen["reasoning_effort"] is None
+    assert (chosen["reader_reasoning_effort"], chosen["reader_calls"]) == ("low", 10)
+    assert (chosen["replan"], chosen["attack"]) == ([0, 0], None)
+    assert settings(args("--mode", "all"))["attack"] == "important_instructions"

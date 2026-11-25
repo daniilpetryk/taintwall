@@ -1,6 +1,9 @@
 {
   "model": "anthropic/claude-haiku-5.5",
+  "reasoning_effort": "medium",
   "reader_model": "anthropic/claude-haiku-5.5",
+  "reader_reasoning_effort": "low",
+  "reader_calls": 10,
   "replan": [
     2,
     1
@@ -8,6 +11,7 @@
   "suite": "banking",
   "version": "v1.2.2",
   "attack": "important_instructions",
+  "refused_functions": {},
   "utility": {
     "utility": {
       "rate": 0.5625,
