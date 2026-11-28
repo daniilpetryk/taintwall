@@ -192,7 +192,7 @@ retries and one shot on one cache (so paired within each draw), cost
 Pooled over the draws, utility with retries is 50 of 80 requests (62%,
 [52–72]) and 419 and 414 of 720 under attack. The pooled interval is too
 narrow, since a task's draws are not independent; the range over draws is
-the honest one. The plain agent's column is #NN's five draws (below).
+the honest one. The plain agent's column is #46's five draws (below).
 
 - **#42's 69% was the best of five draws.** The planner with optional reader
   fields and retries keeps 62% of tasks on average.
@@ -205,7 +205,7 @@ the honest one. The plain agent's column is #NN's five draws (below).
   requests that one shot fails, and lose none. That is 5 points of utility,
   alone and under attack, for 29% more calls (2.1 per request against 1.6).
 
-### Five draws of the plain agent (#NN)
+### Five draws of the plain agent (#46)
 
 `baseline.py --draws 5` runs the stage 0 baseline the same way: each draw
 with its own cache entries, draw 0 served from the baseline's cache (so it
@@ -243,7 +243,7 @@ shared between the pairs of a task.
   the program~~: measured and not adopted (above, ADR 0022).
 - Judge every change to the planner over 5 draws (`--draws 5`) against the
   spread above, and compare the planner with the plain agent's five draws
-  (#NN), not its single baseline run.
+  (#46), not its single baseline run.
 - Keep `Replan(2, 1)` as the default: with optional fields it lifts utility
   by 1 task alone and 9 of 144 pairs under attack over one shot, at 33% more
   calls. Measure `Replan(0, 0)` on the same cache in every run, and judge

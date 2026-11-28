@@ -87,7 +87,7 @@ measured next, on CrAIBench memory injection with policies (stage 3).
   draw), 58% and 57% under attack; retries rescue 40 and 37 attacked
   requests per five draws and lose none (#45).
 - The baseline runner draws too (`baseline.py --draws`, `make bench-baseline
-  DRAWS=5`) (#NN).
+  DRAWS=5`) (#46).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
@@ -104,7 +104,7 @@ measured next, on CrAIBench memory injection with policies (stage 3).
   71% under attack; the planner with Q3's retries 62% (50–69%), 58% and 57%;
   one shot 57%, 53% and 53%. Plan failure with retries 1% alone, 3% and 8%
   under attack. ASR 0% for both in every draw
-  ([report](docs/planner-banking.md), #NN).
+  ([report](docs/planner-banking.md), #46).
 - What the planner writes: stating the plan language takes five models'
   accepted plans from 0–62% to 88–100% (#26, #29).
 
