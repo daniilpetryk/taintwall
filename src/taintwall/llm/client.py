@@ -75,7 +75,7 @@ class LLMError(RuntimeError):
 class TruncatedError(LLMError):
     """The reply was cut at the output budget (``finish_reason == "length"``)."""
 
-    def __init__(self, model: str, usage: Usage = Usage()) -> None:  # noqa: B008 - frozen
+    def __init__(self, model: str, usage: Usage = Usage()) -> None:
         super().__init__(f"{model}: reply cut at the output budget")
         self.usage = usage
 
@@ -83,7 +83,7 @@ class TruncatedError(LLMError):
 class MalformedReplyError(LLMError):
     """The reply is not a JSON object, or not one of the requested schema."""
 
-    def __init__(self, model: str, what: str, usage: Usage = Usage()) -> None:  # noqa: B008 - frozen
+    def __init__(self, model: str, what: str, usage: Usage = Usage()) -> None:
         super().__init__(f"{model}: malformed reply ({what})")
         self.usage = usage
 

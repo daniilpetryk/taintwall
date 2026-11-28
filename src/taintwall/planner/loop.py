@@ -76,7 +76,7 @@ class Planner:
         model: PlannerModel,
         tools: Callable[[], Iterable[tuple[ToolSpec, Implementation]]],
         *,
-        replan: Replan = Replan(),  # noqa: B008 - a frozen dataclass
+        replan: Replan = Replan(),
         policies: Callable[[], Iterable[CallHook]] = tuple,
     ) -> None:
         self._client = client
