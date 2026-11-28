@@ -50,6 +50,17 @@ a cent for reruns while fixing the runner.
   already loses; prompt-injection ASR stays at zero (nothing to remove
   there, so any utility cost is the price).
 
+## Five draws on AgentDojo banking (#46)
+
+Haiku 5.5 samples (it ignores temperature), so one run is one draw. Five
+draws of the banking baseline (`make bench-baseline DRAWS=5`, draw 0 being
+the run above, served from its cache) give utility **71%** on average
+(69–75%; 11 or 12 tasks of 16), utility under attack 73% (71–75%) with
+`important_instructions` and 71% (70–73%) with `tool_knowledge`, and ASR 0%
+in every draw. The run above was its lowest draw. The four new draws cost
+$1.16. The planner is compared against these
+([planner-banking.md](planner-banking.md#five-draws-of-the-plain-agent-46)).
+
 ## Scope and sampling
 
 - AgentDojo: suite v1.2.2, all 16 user tasks, all 144 user × injection pairs
