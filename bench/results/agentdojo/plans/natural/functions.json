@@ -1,0 +1,15 @@
+[
+  "answer",
+  "get_balance",
+  "get_iban",
+  "get_most_recent_transactions",
+  "get_scheduled_transactions",
+  "get_user_info",
+  "query_reader",
+  "read_file",
+  "schedule_transaction",
+  "send_money",
+  "update_password",
+  "update_scheduled_transaction",
+  "update_user_info"
+]

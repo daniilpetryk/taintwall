@@ -22,11 +22,12 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
+FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS runtime
 LABEL org.opencontainers.image.title="taintwall" \
       org.opencontainers.image.source="https://github.com/daniilpetryk/taintwall" \
       org.opencontainers.image.licenses="Apache-2.0"
-# Pull Debian security fixes released after the base image, then drop pip:
+# Pull Debian security fixes released after the base image (CI rebuilds this
+# stage without its cache, so a cached layer never hides a new fix), then drop pip:
 # the app runs from its own venv, so the system pip is only attack surface.
 # hadolint ignore=DL3008,DL3009
 RUN apt-get update \

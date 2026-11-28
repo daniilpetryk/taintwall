@@ -13,7 +13,8 @@ from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.context import Context
 from taintwall.core.interpreter.location import error_at
 from taintwall.core.interpreter.trace import EventKind, Origin, Ref
-from taintwall.core.labels import Labeled, join_all
+from taintwall.core.interpreter.walk import read_label
+from taintwall.core.labels import Labeled
 from taintwall.core.values import Record
 
 
@@ -49,7 +50,7 @@ def subscript(context: Context, node: ast.expr) -> Ref:
         raise error_at(PlanErrorCode.INDEX_OUT_OF_RANGE, node) from None
     own = element.label if isinstance(element, Labeled) else container.labeled.label
     value = element.value if isinstance(element, Labeled) else element
-    label = join_all(own, container.labeled.label, index.labeled.label)
+    label = read_label(own, container.labeled.label, index.labeled.label)
     return context.new((value, label), Origin(EventKind.INDEX, node, "", (container.id, index.id)))
 
 
@@ -65,6 +66,7 @@ def _field(
     field = record.get(field_name)
     if field is None:
         raise error_at(PlanErrorCode.MISSING_FIELD, node, detail)
-    labels = (field.label, container.labeled.label, *(ref.labeled.label for ref in extra))
+    keys = (ref.labeled.label for ref in extra)
     origin = Origin(EventKind.FIELD, node, detail, (container.id, *(ref.id for ref in extra)))
-    return context.new((field.value, join_all(*labels)), origin)
+    label = read_label(field.label, container.labeled.label, *keys)
+    return context.new((field.value, label), origin)

@@ -18,6 +18,14 @@ from taintwall.core.labels import Labeled
 
 _FIELD_NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
+ATOMS: Final = frozenset({str, int, float, bool, type(None)})
+"""Exact types of the atoms a plan value is built from; never their subclasses."""
+
+
+def is_field_name(name: object) -> bool:
+    """Whether ``name`` can name a record field: a short lowercase identifier."""
+    return type(name) is str and _FIELD_NAME.fullmatch(name) is not None
+
 
 class InvalidFieldError(ValueError):
     """A record field name is not a short lowercase identifier."""
@@ -46,7 +54,7 @@ class Record:
     def __post_init__(self) -> None:
         names = [name for name, _ in self.fields]
         for name, value in self.fields:
-            if type(name) is not str or not _FIELD_NAME.fullmatch(name):
+            if not is_field_name(name):
                 raise InvalidFieldError(name)
             if not isinstance(value, Labeled):
                 raise NotLabeledFieldError(name)

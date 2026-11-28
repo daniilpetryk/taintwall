@@ -12,11 +12,11 @@ import ast
 from taintwall.core.errors import PlanErrorCode
 from taintwall.core.interpreter.context import Context
 from taintwall.core.interpreter.location import error_at
-from taintwall.core.interpreter.operators import ATOMS
+from taintwall.core.interpreter.operators import NUMBERS, apply
 from taintwall.core.interpreter.trace import EventKind, Origin, Ref
 from taintwall.core.interpreter.walk import check_nesting, deep_label
 from taintwall.core.labels import join_all
-from taintwall.core.values import Record
+from taintwall.core.values import ATOMS, Record
 
 
 def constant(context: Context, node: ast.expr) -> Ref:
@@ -51,6 +51,22 @@ def record(context: Context, node: ast.expr) -> Ref:
     return context.new((built, context.literal_label), origin)
 
 
+def _interpolate(part: ast.FormattedValue, value: object) -> str:
+    """One interpolated atom; a spec (``parse_plan`` allows fixed-point only) needs a number."""
+    if type(value) not in ATOMS:
+        raise error_at(PlanErrorCode.TYPE_MISMATCH, part, "format")
+    if part.format_spec is None:
+        return str(value)
+    if type(value) not in NUMBERS:
+        raise error_at(PlanErrorCode.TYPE_MISMATCH, part, "format")
+    spec = part.format_spec
+    assert isinstance(spec, ast.JoinedStr)  # noqa: S101 - parse_plan guarantees it
+    constant = spec.values[0]
+    assert isinstance(constant, ast.Constant)  # noqa: S101 - parse_plan guarantees it
+    # An int past the float range cannot be shown fixed-point: a typed error.
+    return str(apply(part, format, value, str(constant.value)))
+
+
 def formatted(context: Context, node: ast.expr) -> Ref:
     """An f-string; a running length stops before every part is joined."""
     assert isinstance(node, ast.JoinedStr)  # noqa: S101 - dispatch guarantees the type
@@ -60,9 +76,7 @@ def formatted(context: Context, node: ast.expr) -> Ref:
     for part in node.values:
         if isinstance(part, ast.FormattedValue):
             refs.append(context.expr(part.value))
-            if type(refs[-1].labeled.value) not in ATOMS:
-                raise error_at(PlanErrorCode.TYPE_MISMATCH, part, "format")
-            parts.append(str(refs[-1].labeled.value))
+            parts.append(_interpolate(part, refs[-1].labeled.value))
         else:
             assert isinstance(part, ast.Constant)  # noqa: S101 - f-string parts are one of the two
             parts.append(str(part.value))

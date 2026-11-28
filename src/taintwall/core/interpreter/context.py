@@ -25,8 +25,15 @@ class ToolCalls(Protocol):
         """Whether ``name`` is a tool of this run."""
         ...
 
-    def call(self, node: ast.Call, name: str, arguments: Arguments, guard: Guard) -> Result:
-        """Call tool ``name`` and label its result."""
+    def call(
+        self,
+        node: ast.Call,
+        name: str,
+        arguments: Arguments,
+        guard: Guard,
+        control: Label | None,
+    ) -> Result:
+        """Call tool ``name`` under pc ``control`` and label its result."""
         ...
 
 
@@ -41,6 +48,11 @@ class Context(Protocol):
     @property
     def literal_label(self) -> Label:
         """Label of every plan literal: the plan and the requester."""
+        ...
+
+    @property
+    def flow(self) -> Flow:
+        """The pc and the implicit-flow mode of this run."""
         ...
 
     @property
@@ -63,11 +75,6 @@ class Context(Protocol):
 
 class Scope(Context, Protocol):
     """The state of one run, as seen by a statement handler."""
-
-    @property
-    def flow(self) -> Flow:
-        """The pc and the implicit-flow mode of this run."""
-        ...
 
     def attempt[R](self, action: Callable[[], R]) -> R:
         """Run ``action``; label a failure by what it depends on.
