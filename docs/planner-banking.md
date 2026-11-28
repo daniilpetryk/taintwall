@@ -220,7 +220,7 @@ shared between the pairs of a task.
   the gap. ASR is 0% for both in every draw: Haiku 5.5 refuses these
   attacks by itself, and this benchmark cannot show what the defense buys.
   That test is memory injection on CrAIBench (48–67% for the plain agent),
-  with policies (stage 3).
+  with policies (stage 3) and the label store (stage 4).
 - **The plain agent is steadier.** Its utility moves by 1 task of 16 between
   draws (11 or 12), the planner's by 3.
 - **Where they differ, task by task.** The plain agent passes tasks 1, 2 and
