@@ -9,6 +9,10 @@ for the client there:
   a baseline is computed once (budget rule); writes are atomic, and an
   unreadable entry counts as a miss;
 * usage and cost of every uncached call are appended to ``usage.jsonl``;
+* ``draw`` picks a separate set of cache entries: a model that ignores
+  temperature samples anew on a miss, so draw ``k`` of a suite is a fresh
+  sample that is just as free to rerun; draw 0 keeps the keys of runs made
+  before draws existed;
 * a ceiling stops the run once spend reaches it (the call that crosses it
   still completes, so a run can end up to one call over);
 * provider errors are raised as ``ProviderError``, which the benchmarks do
@@ -72,9 +76,13 @@ def openrouter_client(env_file: Path) -> openai.OpenAI:
 class MeteredClient:
     """Stands in for ``openai.OpenAI`` where a benchmark calls ``chat.completions.create``."""
 
-    def __init__(self, client: openai.OpenAI, run_dir: Path, max_cost: float) -> None:
+    def __init__(
+        self, client: openai.OpenAI, run_dir: Path, max_cost: float, cache: Path | None = None
+    ) -> None:
         self._client = client
-        self._cache = run_dir / "cache"
+        self.draw = 0
+        """Which draw's cache entries calls use; the runner sets it per draw."""
+        self._cache = cache or run_dir / "cache"
         self._cache.mkdir(parents=True, exist_ok=True)
         self._usage_log = run_dir / "usage.jsonl"
         self._max_cost = max_cost
@@ -93,7 +101,8 @@ class MeteredClient:
     def create(self, **kwargs: Any) -> ChatCompletion:  # noqa: ANN401 - mirrors the OpenAI SDK
         """A cached or metered ``chat.completions.create``."""
         request = {key: value for key, value in kwargs.items() if value is not NOT_GIVEN}
-        key = hashlib.sha256(json.dumps(request, sort_keys=True, default=str).encode()).hexdigest()
+        hashed = {**request, "draw": self.draw} if self.draw else request
+        key = hashlib.sha256(json.dumps(hashed, sort_keys=True, default=str).encode()).hexdigest()
         cached = self._cache / f"{key}.json"
         hit = read_cached(cached)
         if hit is not None:

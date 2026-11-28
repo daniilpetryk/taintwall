@@ -45,9 +45,9 @@ diff-cov: ## Changed lines vs origin/dev must be 100% covered (as CI does)
 # other repo-wide scanners would otherwise read thousands of vendored files.
 BENCH_CACHE ?= $(HOME)/.cache/taintwall
 
-bench-baseline: ## AgentDojo banking baseline (spends OpenRouter credit; ATTACK, MAX_COST)
+bench-baseline: ## AgentDojo banking baseline (spends OpenRouter credit; ATTACK, DRAWS, CACHE, MAX_COST)
 	cd bench/agentdojo && UV_PROJECT_ENVIRONMENT=$(BENCH_CACHE)/bench-agentdojo-venv uv run python baseline.py \
-		--mode all --attack $(or $(ATTACK),important_instructions) \
+		--mode all --attack $(or $(ATTACK),important_instructions) --draws $(or $(DRAWS),1) $(if $(CACHE),--cache $(CACHE)) \
 		--max-cost $(or $(MAX_COST),1.0) --run-name $(or $(RUN),banking-haiku-5.5)
 
 bench-plans: ## Stage 2 study: plans planners write for banking (spends credit; MODELS, RULES=1, MAX_COST)

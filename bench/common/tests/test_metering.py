@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """MeteredClient: caching, cost accounting and the ceiling, without network."""
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, override
 
@@ -71,6 +73,23 @@ def test_repeats_come_from_the_cache_for_free(tmp_path: Path) -> None:
     metered.create(model="m", messages=[{"role": "user", "content": "a"}])
     metered.create(model="m", messages=[{"role": "user", "content": "a"}])
     assert (fake.calls, metered.meter.cache_hits, metered.meter.cost) == (1, 1, 0.25)
+
+
+def test_each_draw_has_its_own_cache_entries(tmp_path: Path) -> None:
+    metered, fake = client(tmp_path)
+    request: dict[str, Any] = {"model": "m", "messages": []}
+    metered.create(**request)
+    metered.draw = 1
+    metered.create(**request)
+    metered.create(**request)
+    metered.draw = 0
+    metered.create(**request)
+    assert (fake.calls, metered.meter.cache_hits) == (2, 2)
+    # Draw 0 keeps the key runs made before draws had; draw 1 adds its number.
+    names = sorted(path.stem for path in (tmp_path / "cache").iterdir())
+    plain = hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
+    drawn = hashlib.sha256(json.dumps({**request, "draw": 1}, sort_keys=True).encode()).hexdigest()
+    assert names == sorted([plain, drawn])
 
 
 def test_ceiling_stops_before_spending_more(tmp_path: Path) -> None:
