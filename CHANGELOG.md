@@ -12,7 +12,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when complete.
+## [0.4.0] - 2026-11-28
+
+Stage 2 complete: the planner and the reader, measured without policies.
+
+The planner writes programs without seeing data; the tool registry, the
+static checker and the labeling interpreter run them; the reader extracts
+fields from what they read. On AgentDojo banking the architecture costs 9
+points of utility (62% against the plain agent's 71%, both over five draws)
+and 15 and 14 under attack, and buys nothing measurable there: Haiku 5.5
+already refuses these attacks, so ASR is 0% for both. What it buys is
+measured next, on CrAIBench memory injection with policies (stage 3).
 
 ### Added
 - Study of what Python planners write: five models, the 16 AgentDojo banking
@@ -76,6 +86,8 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   keeps 62% of banking tasks on average (50–69%; #42's 69% was the best
   draw), 58% and 57% under attack; retries rescue 40 and 37 attacked
   requests per five draws and lose none (#45).
+- The baseline runner draws too (`baseline.py --draws`, `make bench-baseline
+  DRAWS=5`) (#NN).
 
 ### Changed
 - `and`/`or` operands after the first, and the branch of `a if c else b`,
@@ -85,6 +97,16 @@ Stage 2 (planner and reader) is in progress; it is released as 0.4.0 when comple
   seconds (#39).
 - Tool registry: a call's arguments are checked against the tool before any
   policy sees it, so policies see only well-typed calls (#39).
+
+### Measured
+- AgentDojo banking, Haiku 5.5, both models over five draws: the plain agent
+  keeps 71% of tasks (69–75%; the stage 0 run was its lowest draw), 73% and
+  71% under attack; the planner with Q3's retries 62% (50–69%), 58% and 57%;
+  one shot 57%, 53% and 53%. Plan failure with retries 1% alone, 3% and 8%
+  under attack. ASR 0% for both in every draw
+  ([report](docs/planner-banking.md), #NN).
+- What the planner writes: stating the plan language takes five models'
+  accepted plans from 0–62% to 88–100% (#26, #29).
 
 ## [0.3.0] - 2026-11-19
 
@@ -131,7 +153,8 @@ Design and repository skeleton.
   architecture, licensing and security tooling in CI (#1, #4, #5, #6).
 - Security policy and Dependabot for every pin (#7).
 
-[Unreleased]: https://github.com/daniilpetryk/taintwall/compare/v0.3.0...dev
+[Unreleased]: https://github.com/daniilpetryk/taintwall/compare/v0.4.0...dev
+[0.4.0]: https://github.com/daniilpetryk/taintwall/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/daniilpetryk/taintwall/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/daniilpetryk/taintwall/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/daniilpetryk/taintwall/releases/tag/v0.1.0

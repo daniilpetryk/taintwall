@@ -27,6 +27,12 @@ measured. A new result file without a journal entry fails
 `tests/test_journal.py`; so does a `census.json` that no longer matches its
 plans.
 
+`agentdojo/banking-haiku-5.5-draws/` is the AgentDojo baseline over five
+draws (`baseline.py --draws 5`, sharing the baseline's cache, so draw 0 is
+the baseline itself): summary rates are pooled over the draws, `spread`
+gives each per draw, and each draw's pairs are in `pairs.jsonl` (draw 0) and
+`pairs-draw-K.jsonl`.
+
 `agentdojo/planner-*/` holds taintwall's own runs (stage 2 on): the same
 summaries, with plan failures by cause, and one line per pair with what the
 planner did (`failure`, the failed `attempts` as phase and error code,
