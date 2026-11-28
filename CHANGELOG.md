@@ -12,6 +12,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-28
+
+Dependency updates, and a README that says where the project is.
+
+### Changed
+- Dependencies: the signer's distroless base image and Grype (#48), Foundry
+  v1.10.1 for anvil (#33), OpenAI and Pydantic in the benchmarks (#34), and
+  the Python dev tools: ruff, pylint, pyrefly, hypothesis, diff-cover (#49).
+  Ruff 0.17.6 no longer flags a frozen dataclass as a mutable default, so
+  three `noqa: B008` are gone.
+- README: the status badge and line say stage 2 is done, and the layout
+  lists the planner and the reader and marks what is still planned.
+
+### Fixed
+- 0.4.0's notes, README and design said stage 3 measures CrAIBench's memory
+  injection; that is stage 4 (the label store). Stage 3 is policies, measured
+  on AgentDojo banking.
+
 ## [0.4.0] - 2026-11-28
 
 Stage 2 complete: the planner and the reader, measured without policies.
@@ -22,7 +40,7 @@ fields from what they read. On AgentDojo banking the architecture costs 9
 points of utility (62% against the plain agent's 71%, both over five draws)
 and 15 and 14 under attack, and buys nothing measurable there: Haiku 5.5
 already refuses these attacks, so ASR is 0% for both. What it buys is
-measured next, on CrAIBench memory injection with policies (stage 3).
+measured with policies (stage 3) and on CrAIBench's memory injection (stage 4).
 
 ### Added
 - Study of what Python planners write: five models, the 16 AgentDojo banking
@@ -153,7 +171,8 @@ Design and repository skeleton.
   architecture, licensing and security tooling in CI (#1, #4, #5, #6).
 - Security policy and Dependabot for every pin (#7).
 
-[Unreleased]: https://github.com/daniilpetryk/taintwall/compare/v0.4.0...dev
+[Unreleased]: https://github.com/daniilpetryk/taintwall/compare/v0.4.1...dev
+[0.4.1]: https://github.com/daniilpetryk/taintwall/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/daniilpetryk/taintwall/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/daniilpetryk/taintwall/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/daniilpetryk/taintwall/compare/v0.1.0...v0.2.0

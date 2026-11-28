@@ -2,13 +2,13 @@
 
 **Prompt-injection defense for AI agents that hold a crypto wallet: by architecture, not by prompting.**
 
-![status](https://img.shields.io/badge/status-stage%201%3A%20core-yellow) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
+![status](https://img.shields.io/badge/status-stage%202%3A%20planner-yellow) ![python](https://img.shields.io/badge/core-Python-3776AB) ![go](https://img.shields.io/badge/signer-Go-00ADD8) ![chain](https://img.shields.io/badge/chain-anvil%20fork%20only-lightgrey) ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 An agent with a wallet reads text that strangers write: token names, NFT metadata, DAO proposals, invoices, web pages, group-chat messages. If any of that text can steer what the agent does next, one crafted token name is enough to drain the wallet, and the loss is irreversible.
 
 taintwall makes that path structurally impossible. The model that decides what to do never sees untrusted text. Every value carries a label saying where it came from. Every tool call is checked against a policy, and every transaction is simulated on a local fork before an isolated signer will sign it.
 
-> **Status:** stage 2 done (0.4.0). Provenance labels and the plan interpreter (`taintwall.core`), with explicit and implicit flows (strict and lenient), are implemented and property-tested (stage 1). The planner writes programs without seeing data, a static checker and the interpreter run them, and the reader extracts fields from what they read (stage 2): on AgentDojo banking, without policies yet, it keeps 62% of tasks on average over five draws (plain agent 71%) and 57–58% under attack (plain agent 71–73%). ASR is 0% for both: this model already refuses these attacks, so banking shows what the architecture costs, not what it buys ([report](docs/planner-banking.md)). Policies and memory injection on CrAIBench, where the plain agent fails in half to two-thirds of cases (stage 3), are next. The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks). Every benchmark run is in the **[measurements](https://daniilpetryk.github.io/taintwall/measurements.html)**: patch notes with each number's change since it was last measured. How the project got here: the [changelog](CHANGELOG.md) (one section per release) and the [decision log](docs/decisions/README.md) (each rule with its date and reason).
+> **Status:** stage 2 done (0.4.1). Provenance labels and the plan interpreter (`taintwall.core`), with explicit and implicit flows (strict and lenient), are implemented and property-tested (stage 1). The planner writes programs without seeing data, a static checker and the interpreter run them, and the reader extracts fields from what they read (stage 2): on AgentDojo banking, without policies yet, it keeps 62% of tasks on average over five draws (plain agent 71%) and 57–58% under attack (plain agent 71–73%). ASR is 0% for both: this model already refuses these attacks, so banking shows what the architecture costs, not what it buys ([report](docs/planner-banking.md)). Policies are next (stage 3); then the label store and CrAIBench's memory injection, where the plain agent fails in half to two-thirds of cases (stage 4). The design is complete: [`docs/design.md`](docs/design.md) (text) and the **[architecture diagrams](https://daniilpetryk.github.io/taintwall/)** (trust boundaries, label flow, policy engine, attacks). Every benchmark run is in the **[measurements](https://daniilpetryk.github.io/taintwall/measurements.html)**: patch notes with each number's change since it was last measured. How the project got here: the [changelog](CHANGELOG.md) (one section per release) and the [decision log](docs/decisions/README.md) (each rule with its date and reason).
 
 ## The attack it stops
 
@@ -200,13 +200,15 @@ src/taintwall/
   core/      plan language and checker, records, typed errors, mint
     labels/      sources, labels, Labeled[T] values
     interpreter/ evaluator, node handlers, operators, tools, limits, trace
-  llm/       provider-agnostic LLM client (OpenRouter), response cache
-  policy/    policy engine, YAML schema
-  store/     label-preserving memory, address book, caches (SQLite)
-  tools/     tool registry, MCP adapter
-  web3/      chain tools, anvil simulation, effect accounting
+  llm/       provider-agnostic LLM client (OpenRouter): checked structured output, cache, budget
+  planner/   the P-LLM: prompt, plan-check-run loop with typed retries, answer tool
+  reader/    the Q-LLM as the tool query_reader: fields out, labels kept
+  tools/     tool registry from trusted specs, static plan checker; MCP adapter (planned)
+  policy/    policy engine, YAML schema (planned)
+  store/     label-preserving memory, address book, caches (SQLite) (planned)
+  web3/      chain tools, anvil simulation, effect accounting (planned)
 signer/      Go signing service
-bench/       benchmark runs: agentdojo/ (baseline done), CrAIBench and own anvil suites (planned)
+bench/       benchmark runs and committed results: agentdojo/ (baseline, planner), craibench/ (baseline); own anvil suites (planned)
 viewer/      provenance graph UI (planned)
 docker/      Dockerfiles for signer, app and dev toolbox
 docs/        design and architecture
